@@ -12,8 +12,15 @@ in [Peergos/web-ui#757](https://github.com/Peergos/web-ui/issues/757).
 ## Status
 
 Scaffold complete: manifest, vendored FullCalendar, and a working create/
-edit/delete event UI wired against **in-memory mock events** (`calendar.js`).
-Not yet connected to real Peergos storage.
+edit/delete event UI (including whole-series recurring events) wired against
+**in-memory mock events** (`calendar.js`). Not yet connected to real Peergos
+storage.
+
+Recurring events currently support whole-series create/edit/delete only
+(`DAILY`/`WEEKLY`/`MONTHLY`/`YEARLY`, `INTERVAL`, `COUNT`, `UNTIL`) —
+editing/deleting a single occurrence or "this and future" (`EXDATE`/series-
+splitting) is deferred; `BYDAY`/`BYMONTHDAY`/`BYMONTH` aren't in the UI yet
+either. See the feature-parity checklist below for what's still open.
 
 **Blocked on:** the `READ_CALENDAR`/`WRITE_CALENDAR` permissions below —
 not yet implemented on the `peergos` core side. Once they land, the mock
@@ -55,6 +62,22 @@ against the shape that swap will need.
 - **`.ics` stays a portable, standard format.** Plain RFC5545 with a
   standard `PRODID`, not a proprietary extension — export from Peergos must
   import cleanly into Google Calendar/Outlook/Apple Calendar and back.
+- **Recurrence dates are floating time, no `TZID`.** `dtstart`/`until` are
+  always passed to the plugin as bare local-time strings (`"YYYY-MM-DD"` or
+  `"YYYY-MM-DDTHH:MM"`), never as `Date` objects — `rrule.js` reads a raw
+  `Date` object via its UTC getters regardless of the actual local
+  timezone, which silently corrupts the time for anyone not in UTC (found
+  and fixed during development; see `calendar.js`'s `recur.dtstart`
+  handling). Floating time (no explicit zone) is itself deliberate and
+  RFC5545-legal — it's what `DTSTART`/`RRULE` look like with no `TZID` and
+  no trailing `Z`, so this maps directly onto a real `.ics` file rather
+  than needing conversion at export time. One gap to close when the actual
+  `.ics` serializer gets built: RFC5545 requires `UNTIL`'s value type to
+  match `DTSTART`'s (date vs. date-time); our `UNTIL` is currently always
+  date-only (from a plain `<input type="date">`), which needs a time
+  component appended for a *timed* recurring event's export to be
+  strictly spec-compliant. Not an issue yet since there's no serializer to
+  have this bug in — noted here so it isn't missed when Phase 4 builds one.
 
 ## Requirements (feature parity with the old built-in calendar)
 
@@ -128,6 +151,20 @@ https://registry.npmjs.org/@fullcalendar/rrule/-/rrule-7.0.1.tgz
 npm-only: no GitHub release ZIP asset exists for this package (its source
 lives in the same `fullcalendar/fullcalendar` monorepo, at
 `packages/rrule`, just never packaged into a release asset).
+
+**Known bug in this plugin (v7.0.1), verified empirically with a real
+browser session, not just source-reading:** passing a recurring event's
+`duration` as a bare number (e.g. `duration: 2700000`) silently produces an
+event with `end === start` — no error, but the event renders with zero
+height in `timeGridWeek`/`timeGridDay` (invisible) and its true length is
+lost. The plugin has its own local copy of `createDuration`, separate from
+core's, and the bug is specific to the recurring-event path — the same
+number works fine for a plain (non-recurring) event, and the object form
+(`duration: { minutes: 45 }` / `{ milliseconds: 2700000 }`) works correctly
+for recurring events too. **Always use the object form for a recurring
+event's `duration`** — see `calendar.js`'s save handler and the `Gym` mock
+event. Re-check this against the CHANGELOG when bumping to a newer
+`@fullcalendar/rrule` version, in case it's since been fixed upstream.
 
 ### RRule library `rrule` v2.8.1 (MIT)
 

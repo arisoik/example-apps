@@ -41,6 +41,37 @@
             <label for="event-all-day">All day</label>
           </div>
 
+          <label for="event-repeat-freq">Repeat</label>
+          <select id="event-repeat-freq">
+            <option value="">Does not repeat</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+
+          <div id="event-repeat-details" class="repeat-details">
+            <div class="repeat-interval-row">
+              <span>Every</span>
+              <input type="number" id="event-repeat-interval" min="1" value="1"/>
+              <span id="event-repeat-interval-unit">day(s)</span>
+            </div>
+
+            <label for="event-repeat-end">Ends</label>
+            <select id="event-repeat-end">
+              <option value="never">Never</option>
+              <option value="until">On date</option>
+              <option value="count">After a number of occurrences</option>
+            </select>
+
+            <input type="date" id="event-repeat-until"/>
+
+            <div id="event-repeat-count-row" class="repeat-count-row">
+              <input type="number" id="event-repeat-count" min="1" value="10"/>
+              <span>occurrence(s)</span>
+            </div>
+          </div>
+
           <label for="event-status">Status</label>
           <select id="event-status">
             <option value="active">Active</option>

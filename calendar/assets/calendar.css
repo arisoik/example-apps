@@ -122,6 +122,32 @@ html, body {
   margin: 0;
 }
 
+.event-modal .repeat-details {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid #e2e8f0;
+}
+
+.event-modal .repeat-details label {
+  margin-top: 10px;
+}
+
+.event-modal .repeat-interval-row,
+.event-modal .repeat-count-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-modal .repeat-interval-row input[type="number"],
+.event-modal .repeat-count-row input[type="number"] {
+  width: 64px;
+}
+
+.event-modal #event-repeat-until {
+  margin-top: 8px;
+}
+
 .event-modal .modal-actions {
   display: flex;
   justify-content: flex-end;
