@@ -12,15 +12,31 @@ in [Peergos/web-ui#757](https://github.com/Peergos/web-ui/issues/757).
 ## Status
 
 Scaffold complete: manifest, vendored FullCalendar, and a working create/
-edit/delete event UI (including whole-series recurring events) wired against
-**in-memory mock events** (`calendar.js`). Not yet connected to real Peergos
-storage.
+edit/delete event UI wired against **in-memory mock events** (`calendar.js`).
+Not yet connected to real Peergos storage.
 
-Recurring events currently support whole-series create/edit/delete only
-(`DAILY`/`WEEKLY`/`MONTHLY`/`YEARLY`, `INTERVAL`, `COUNT`, `UNTIL`) —
-editing/deleting a single occurrence or "this and future" (`EXDATE`/series-
-splitting) is deferred; `BYDAY`/`BYMONTHDAY`/`BYMONTH` aren't in the UI yet
-either. See the feature-parity checklist below for what's still open.
+Recurring events support `DAILY`/`WEEKLY`/`MONTHLY`/`YEARLY` with
+`INTERVAL`/`COUNT`/`UNTIL`, plus a Google-Calendar-style scope prompt
+("This event" / "This and following events" / "All events") for editing or
+deleting a recurring event — implemented via `EXDATE` (single-occurrence
+exceptions) and `UNTIL`-truncation + a new continuation series
+(this-and-following splits). `BYDAY`/`BYMONTHDAY`/`BYMONTH` aren't in the UI
+yet. See the feature-parity checklist below for what's still open.
+
+Interaction model follows the pattern established by Google Calendar/
+Outlook rather than a plain form-first flow: clicking an event shows a
+small positioned **preview popover** (time, location, repeat summary,
+description, edit/delete icon buttons) instead of jumping straight into
+the edit form; creating a timed event supports click-*and*-drag to pick a
+range (`selectable`/`select`, not `dateClick`); both the event popup and
+the recurring-event scope prompt close on Escape or an outside click.
+Icons throughout (`vendor/tabler-icons/`) are Tabler Icons — deliberately
+*not* Google's own Material Symbols, even though the interaction pattern
+above is modeled on Google Calendar: for a project like Peergos, whose
+whole point is being a privacy-respecting alternative to relying on
+services like Google's, visually borrowing Google's specific icon
+language felt like the wrong call even though it's freely licensed. Tabler
+is a neutral, modern outline-icon set with no big-tech branding attached.
 
 **Blocked on:** the `READ_CALENDAR`/`WRITE_CALENDAR` permissions below —
 not yet implemented on the `peergos` core side. Once they land, the mock
@@ -71,13 +87,14 @@ against the shape that swap will need.
   handling). Floating time (no explicit zone) is itself deliberate and
   RFC5545-legal — it's what `DTSTART`/`RRULE` look like with no `TZID` and
   no trailing `Z`, so this maps directly onto a real `.ics` file rather
-  than needing conversion at export time. One gap to close when the actual
-  `.ics` serializer gets built: RFC5545 requires `UNTIL`'s value type to
-  match `DTSTART`'s (date vs. date-time); our `UNTIL` is currently always
-  date-only (from a plain `<input type="date">`), which needs a time
-  component appended for a *timed* recurring event's export to be
-  strictly spec-compliant. Not an issue yet since there's no serializer to
-  have this bug in — noted here so it isn't missed when Phase 4 builds one.
+  than needing conversion at export time. RFC5545 requires `UNTIL`'s value
+  type to match `DTSTART`'s (date vs. date-time); the `UNTIL` date the user
+  picks is always date-only (from a plain `<input type="date">`), so
+  `formatUntil()` appends the series' own time-of-day for a *timed*
+  recurring event before it reaches the plugin — this was needed for
+  correctness anyway (a date-only `UNTIL` would exclude that day's own
+  occurrence, whose time is always later than midnight) and happens to
+  keep the `rrule` object export-ready too.
 
 ## Requirements (feature parity with the old built-in calendar)
 
@@ -186,6 +203,40 @@ for a more actively-released alternative without writing a custom plugin.
 Its slow release cadence (last release 2023-11-10) reflects RFC5545 being a
 frozen spec, not abandonment — the repo isn't archived and still gets
 commits.
+
+### Tabler Icons (MIT)
+
+`vendor/tabler-icons/outline/<icon>.svg` mirrors the upstream repo's own
+path for each icon (the `outline` variant, matching the rest of the app's
+line-icon look). Chosen over Google's Material Symbols deliberately: the
+scope-prompt/popover interaction pattern elsewhere in this app is modeled
+on Google Calendar, but the icon *set* isn't — see the note in Status
+above. Picked over Feather/Lucide (the other well-known MIT outline sets)
+based on actual current adoption, not GitHub stars alone: `@tabler/icons`
+gets ~3M npm downloads/week vs. Lucide's ~860K and Feather's ~200K
+(checked 2026-07-19), and it's the most actively maintained of the three.
+
+```
+https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/<icon>.svg
+```
+
+Icons currently used: `clock` (time), `map-pin` (location), `repeat`,
+`flag` (status), `notes` (description), `x` (close), `pencil` (edit),
+`trash` (delete). Tabler's SVGs already ship with `stroke="currentColor"`
+baked in, but that only matters once the markup is actually inline in the
+page — an `<img src="...svg">` renders the file in its own isolated
+document context, so `currentColor` there still resolves independently of
+the page, not to it. Static/informational icons (popover rows, form field
+labels) are plain `<img>` tags referencing the vendored file directly —
+simplest option, fine for the current single (light) theme. The three
+*interactive* icons (edit/delete/close, which need to inherit a button's
+text color for hover/danger states) are inlined directly in `index.html`,
+copy-pasted from the same vendored files, which is what actually lets
+`currentColor` pick up the button's color. **When dark mode gets built
+(open item, not started yet)**, revisit the `<img>`-based icons too, since
+those stay whatever color they were vendored as — either inline them the
+same way, or use a CSS `mask-image` + `background-color: currentColor`
+technique instead of duplicating markup for every icon.
 
 ### Updating to a newer release
 

@@ -21,10 +21,10 @@
           <label for="event-title">Title</label>
           <input type="text" id="event-title" required/>
 
-          <label for="event-location">Location</label>
+          <label for="event-location" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/map-pin.svg" alt=""/>Location</label>
           <input type="text" id="event-location"/>
 
-          <label for="event-start-date">Start</label>
+          <label for="event-start-date" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/clock.svg" alt=""/>Start</label>
           <div class="date-time-row">
             <input type="date" id="event-start-date" required/>
             <input type="time" id="event-start-time" required/>
@@ -41,44 +41,46 @@
             <label for="event-all-day">All day</label>
           </div>
 
-          <label for="event-repeat-freq">Repeat</label>
-          <select id="event-repeat-freq">
-            <option value="">Does not repeat</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="yearly">Yearly</option>
-          </select>
-
-          <div id="event-repeat-details" class="repeat-details">
-            <div class="repeat-interval-row">
-              <span>Every</span>
-              <input type="number" id="event-repeat-interval" min="1" value="1"/>
-              <span id="event-repeat-interval-unit">day(s)</span>
-            </div>
-
-            <label for="event-repeat-end">Ends</label>
-            <select id="event-repeat-end">
-              <option value="never">Never</option>
-              <option value="until">On date</option>
-              <option value="count">After a number of occurrences</option>
+          <div id="event-repeat-section">
+            <label for="event-repeat-freq" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/repeat.svg" alt=""/>Repeat</label>
+            <select id="event-repeat-freq">
+              <option value="">Does not repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
             </select>
 
-            <input type="date" id="event-repeat-until"/>
+            <div id="event-repeat-details" class="repeat-details">
+              <div class="repeat-interval-row">
+                <span>Every</span>
+                <input type="number" id="event-repeat-interval" min="1" value="1"/>
+                <span id="event-repeat-interval-unit">day(s)</span>
+              </div>
 
-            <div id="event-repeat-count-row" class="repeat-count-row">
-              <input type="number" id="event-repeat-count" min="1" value="10"/>
-              <span>occurrence(s)</span>
+              <label for="event-repeat-end">Ends</label>
+              <select id="event-repeat-end">
+                <option value="never">Never</option>
+                <option value="until">On date</option>
+                <option value="count">After a number of occurrences</option>
+              </select>
+
+              <input type="date" id="event-repeat-until"/>
+
+              <div id="event-repeat-count-row" class="repeat-count-row">
+                <input type="number" id="event-repeat-count" min="1" value="10"/>
+                <span>occurrence(s)</span>
+              </div>
             </div>
           </div>
 
-          <label for="event-status">Status</label>
+          <label for="event-status" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/flag.svg" alt=""/>Status</label>
           <select id="event-status">
             <option value="active">Active</option>
             <option value="cancelled">Cancelled</option>
           </select>
 
-          <label for="event-description">Description</label>
+          <label for="event-description" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/notes.svg" alt=""/>Description</label>
           <textarea id="event-description"></textarea>
 
           <div class="modal-actions">
@@ -87,6 +89,64 @@
             <button type="submit" id="event-save" class="primary">Save</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div id="scope-modal-backdrop" class="event-modal-backdrop">
+      <div class="event-modal scope-modal">
+        <h2>This is a recurring event</h2>
+        <p class="scope-subtitle" id="scope-subtitle">Which events would you like to change?</p>
+        <div class="scope-options">
+          <label class="scope-option">
+            <input type="radio" name="scope" value="this" checked/>
+            <span>This event</span>
+          </label>
+          <label class="scope-option">
+            <input type="radio" name="scope" value="following"/>
+            <span>This and following events</span>
+          </label>
+          <label class="scope-option">
+            <input type="radio" name="scope" value="all"/>
+            <span>All events</span>
+          </label>
+        </div>
+        <div class="scope-actions">
+          <button type="button" id="scope-cancel">Cancel</button>
+          <button type="button" id="scope-confirm" class="primary">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="event-popover" class="event-popover">
+      <div class="popover-header">
+        <span id="popover-title" class="popover-title"></span>
+        <button type="button" id="popover-close" class="popover-icon-btn" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="popover-row" id="popover-time-row">
+        <img class="popover-icon" src="vendor/tabler-icons/outline/clock.svg" alt=""/>
+        <span id="popover-time"></span>
+      </div>
+      <div class="popover-row" id="popover-repeat-row">
+        <img class="popover-icon" src="vendor/tabler-icons/outline/repeat.svg" alt=""/>
+        <span id="popover-repeat"></span>
+      </div>
+      <div class="popover-row" id="popover-location-row">
+        <img class="popover-icon" src="vendor/tabler-icons/outline/map-pin.svg" alt=""/>
+        <span id="popover-location"></span>
+      </div>
+      <div class="popover-row" id="popover-description-row">
+        <img class="popover-icon" src="vendor/tabler-icons/outline/notes.svg" alt=""/>
+        <span id="popover-description"></span>
+      </div>
+      <div class="popover-actions" id="popover-actions">
+        <button type="button" id="popover-delete" class="popover-icon-btn" aria-label="Delete">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg>
+        </button>
+        <button type="button" id="popover-edit" class="popover-icon-btn" aria-label="Edit">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>
+        </button>
       </div>
     </div>
 
