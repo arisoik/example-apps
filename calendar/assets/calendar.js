@@ -12,7 +12,7 @@ let mockEvents = [
         start: mockDate(1, 10, 0),
         end: mockDate(1, 11, 0),
         allDay: false,
-        extendedProps: { location: 'Meeting room 2', description: 'Weekly planning call' }
+        extendedProps: { location: 'Meeting room 2', description: 'Weekly planning call', status: 'active' }
     },
     {
         id: 'mock-2',
@@ -20,7 +20,7 @@ let mockEvents = [
         start: mockDate(3),
         end: mockDate(6),
         allDay: true,
-        extendedProps: { location: 'Lake house', description: '' }
+        extendedProps: { location: 'Lake house', description: '', status: 'active' }
     },
     {
         id: 'mock-3',
@@ -28,7 +28,7 @@ let mockEvents = [
         start: mockDate(-2, 9, 30),
         end: mockDate(-2, 10, 0),
         allDay: false,
-        extendedProps: { location: '', description: '' }
+        extendedProps: { location: '', description: '', status: 'cancelled' }
     }
 ];
 
@@ -46,12 +46,13 @@ let startTimeInput = document.getElementById('event-start-time');
 let endDateInput = document.getElementById('event-end-date');
 let endTimeInput = document.getElementById('event-end-time');
 let locationInput = document.getElementById('event-location');
+let statusInput = document.getElementById('event-status');
 let descriptionInput = document.getElementById('event-description');
 let deleteButton = document.getElementById('event-delete');
 let saveButton = document.getElementById('event-save');
 let cancelButton = document.getElementById('event-cancel');
 let modalHeading = document.getElementById('event-modal-heading');
-let editableFields = [titleInput, allDayInput, startDateInput, startTimeInput, endDateInput, endTimeInput, locationInput, descriptionInput];
+let editableFields = [titleInput, allDayInput, startDateInput, startTimeInput, endDateInput, endTimeInput, locationInput, statusInput, descriptionInput];
 
 let editingEvent = null;
 
@@ -111,6 +112,7 @@ function openModal(mode, opts) {
         start = ev.start;
         end = toFormEnd(ev.end || ev.start, allDay);
         locationInput.value = ev.extendedProps.location || '';
+        statusInput.value = ev.extendedProps.status || 'active';
         descriptionInput.value = ev.extendedProps.description || '';
     } else {
         titleInput.value = '';
@@ -118,6 +120,7 @@ function openModal(mode, opts) {
         start = opts.date;
         end = allDay ? opts.date : new Date(opts.date.getTime() + 3600000);
         locationInput.value = '';
+        statusInput.value = 'active';
         descriptionInput.value = '';
     }
 
@@ -156,6 +159,7 @@ form.addEventListener('submit', function (e) {
         editingEvent.setProp('title', titleInput.value);
         editingEvent.setDates(start, end, { allDay: allDay });
         editingEvent.setExtendedProp('location', locationInput.value);
+        editingEvent.setExtendedProp('status', statusInput.value);
         editingEvent.setExtendedProp('description', descriptionInput.value);
     } else {
         calendar.addEvent({
@@ -163,7 +167,7 @@ form.addEventListener('submit', function (e) {
             start: start,
             end: end,
             allDay: allDay,
-            extendedProps: { location: locationInput.value, description: descriptionInput.value }
+            extendedProps: { location: locationInput.value, status: statusInput.value, description: descriptionInput.value }
         });
     }
     closeModal();
@@ -186,6 +190,9 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     height: '100%',
     firstDay: 1,
     events: mockEvents,
+    eventClass: function (info) {
+        return info.event.extendedProps.status === 'cancelled' ? 'fc-event-cancelled' : '';
+    },
     dateClick: function (info) {
         if (!isWritable) return;
         openModal('create', { date: info.date, allDay: info.allDay });

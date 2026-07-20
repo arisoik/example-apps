@@ -21,10 +21,8 @@
           <label for="event-title">Title</label>
           <input type="text" id="event-title" required/>
 
-          <div class="all-day-row">
-            <input type="checkbox" id="event-all-day"/>
-            <label for="event-all-day">All day</label>
-          </div>
+          <label for="event-location">Location</label>
+          <input type="text" id="event-location"/>
 
           <label for="event-start-date">Start</label>
           <div class="date-time-row">
@@ -38,8 +36,16 @@
             <input type="time" id="event-end-time" required/>
           </div>
 
-          <label for="event-location">Location</label>
-          <input type="text" id="event-location"/>
+          <div class="all-day-row">
+            <input type="checkbox" id="event-all-day"/>
+            <label for="event-all-day">All day</label>
+          </div>
+
+          <label for="event-status">Status</label>
+          <select id="event-status">
+            <option value="active">Active</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
 
           <label for="event-description">Description</label>
           <textarea id="event-description"></textarea>

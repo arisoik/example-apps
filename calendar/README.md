@@ -61,7 +61,7 @@ against the shape that swap will need.
 - Single and recurring event create/edit/delete (`DAILY`/`WEEKLY`/`MONTHLY`/
   `YEARLY`, `BYDAY`, `BYMONTHDAY`, `BYMONTH`, `INTERVAL`, `COUNT`, `UNTIL`)
 - Recurring edits scoped to "this event" / "this and future" / "all events"
-- Event fields: title, location, description, color (per-calendar), state
+- Event fields: title, location, description, color (per-calendar), status
 - Multiple calendars: create/rename/delete/recolor, show/hide filtering
 - Sharing a calendar or a single event
 - `.ics` import (bulk and staged per-event) and export (single event,
