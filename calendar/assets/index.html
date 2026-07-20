@@ -8,77 +8,56 @@
     <link href="vendor/fullcalendar/dist/skeleton.css" rel="stylesheet"/>
     <link href="vendor/fullcalendar/dist/themes/classic/theme.css" rel="stylesheet"/>
     <link href="vendor/fullcalendar/dist/themes/classic/palette.css" rel="stylesheet"/>
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      }
-      #calendar {
-        max-width: 100%;
-        height: 100%;
-        padding: 8px;
-        box-sizing: border-box;
-      }
-
-      @media (max-width: 650px) {
-        .fc {
-          font-size: .9em;
-        }
-
-        .fc-toolbar {
-          flex-wrap: wrap;
-        }
-
-        .fc-toolbar-center {
-          order: -1;
-          width: 100%;
-          justify-content: center;
-        }
-      }
-
-      @media (max-width: 450px) {
-        .fc-toolbar {
-          flex-direction: column;
-        }
-      }
-    </style>
+    <link href="calendar.css" rel="stylesheet"/>
   </head>
   <body>
 
     <div id="calendar"></div>
+
+    <div id="event-modal-backdrop" class="event-modal-backdrop">
+      <div class="event-modal">
+        <h2 id="event-modal-heading">New event</h2>
+        <form id="event-form">
+          <label for="event-title">Title</label>
+          <input type="text" id="event-title" required/>
+
+          <div class="all-day-row">
+            <input type="checkbox" id="event-all-day"/>
+            <label for="event-all-day">All day</label>
+          </div>
+
+          <label for="event-start-date">Start</label>
+          <div class="date-time-row">
+            <input type="date" id="event-start-date" required/>
+            <input type="time" id="event-start-time" required/>
+          </div>
+
+          <label for="event-end-date">End</label>
+          <div class="date-time-row">
+            <input type="date" id="event-end-date" required/>
+            <input type="time" id="event-end-time" required/>
+          </div>
+
+          <label for="event-location">Location</label>
+          <input type="text" id="event-location"/>
+
+          <label for="event-description">Description</label>
+          <textarea id="event-description"></textarea>
+
+          <div class="modal-actions">
+            <button type="button" id="event-delete" class="danger">Delete</button>
+            <button type="button" id="event-cancel">Cancel</button>
+            <button type="submit" id="event-save" class="primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <script src="vendor/fullcalendar/dist/fullcalendar.global.js"></script>
     <script src="vendor/fullcalendar/dist/themes/classic/global.js"></script>
     <script src="vendor/fullcalendar/dist/locales-all/global.js"></script>
     <script src="vendor/rrule/dist/es5/rrule.min.js"></script>
     <script src="vendor/fullcalendar-rrule/global.js"></script>
-    <script>
-
-let href = window.location.href;
-let url = new URL(href);
-let filePath = url.searchParams.get("path");
-let isWritable = url.searchParams.get("isPathWritable") == 'true';
-let theme = url.searchParams.get("theme");
-
-let calendarEl = document.getElementById('calendar');
-let calendar = new FullCalendar.Calendar(calendarEl, {
-    initialView: 'dayGridMonth',
-    locale: navigator.language.toLowerCase(),
-    headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
-    },
-    height: '100%',
-    firstDay: 1,
-    events: []
-});
-calendar.render();
-
-console.log('Calendar app scaffold loaded. path=' + filePath + ' isWritable=' + isWritable + ' theme=' + theme);
-
-    </script>
+    <script src="calendar.js"></script>
   </body>
 </html>
