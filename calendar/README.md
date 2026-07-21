@@ -26,10 +26,15 @@ yet. See the feature-parity checklist below for what's still open.
 Interaction model follows the pattern established by Google Calendar/
 Outlook rather than a plain form-first flow: clicking an event shows a
 small positioned **preview popover** (time, location, repeat summary,
-description, edit/delete icon buttons) instead of jumping straight into
-the edit form; creating a timed event supports click-*and*-drag to pick a
-range (`selectable`/`select`, not `dateClick`); both the event popup and
-the recurring-event scope prompt close on Escape or an outside click.
+description, edit/duplicate/delete icon buttons) instead of jumping
+straight into the edit form; creating a timed event supports click-*and*-
+drag to pick a range (`selectable`/`select`, not `dateClick`); both the
+event popup and the recurring-event scope prompt close on Escape or an
+outside click. **Duplicate** always creates a standalone, non-recurring
+copy of just the clicked occurrence (pre-filled into the create form, not
+silently created) — even when duplicating one occurrence of a recurring
+series, since the copy is never itself part of that series and shouldn't
+need the scope prompt recurring edits do.
 Icons throughout (`vendor/tabler-icons/`) are Tabler Icons — deliberately
 *not* Google's own Material Symbols, even though the interaction pattern
 above is modeled on Google Calendar: for a project like Peergos, whose
@@ -109,8 +114,8 @@ against the shape that swap will need.
 - Read-only mode, whole-calendar or per-event
 - Dark mode via the sandbox runtime's `?theme=` param
 - Timezone handling, guest/secret-link access
-- New: event search (loaded-events scope, see above), duplicate-event
-  action (pre-fill a new event from an existing one's fields)
+- New: event search (loaded-events scope, see above); duplicate-event
+  action done (see Status above)
 
 ## Vendored dependencies
 
@@ -222,7 +227,8 @@ https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/<icon>.
 
 Icons currently used: `clock` (time), `map-pin` (location), `repeat`,
 `flag` (status), `notes` (description), `x` (close), `pencil` (edit),
-`trash` (delete). Tabler's SVGs already ship with `stroke="currentColor"`
+`copy` (duplicate), `trash` (delete). Tabler's SVGs already ship with
+`stroke="currentColor"`
 baked in, but that only matters once the markup is actually inline in the
 page — an `<img src="...svg">` renders the file in its own isolated
 document context, so `currentColor` there still resolves independently of

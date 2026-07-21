@@ -173,6 +173,7 @@ let popoverDescription = document.getElementById('popover-description');
 let popoverActions = document.getElementById('popover-actions');
 let popoverCloseButton = document.getElementById('popover-close');
 let popoverEditButton = document.getElementById('popover-edit');
+let popoverDuplicateButton = document.getElementById('popover-duplicate');
 let popoverDeleteButton = document.getElementById('popover-delete');
 
 let editingEvent = null;
@@ -406,7 +407,7 @@ function performScopedDelete(ev, scope) {
 function openModal(mode, opts) {
     editingEvent = mode === 'edit' ? opts.event : null;
     editScope = opts.scope || 'all';
-    modalHeading.textContent = mode === 'edit' ? 'Edit event' : 'New event';
+    modalHeading.textContent = mode === 'edit' ? 'Edit event' : (opts.prefill ? 'Duplicate event' : 'New event');
 
     editableFields.forEach(el => el.disabled = !isWritable);
     saveButton.style.display = isWritable ? '' : 'none';
@@ -442,13 +443,14 @@ function openModal(mode, opts) {
         statusInput.value = ev.extendedProps.status || 'active';
         descriptionInput.value = ev.extendedProps.description || '';
     } else {
-        titleInput.value = '';
+        let prefill = opts.prefill || {};
+        titleInput.value = prefill.title || '';
         allDay = opts.allDay || false;
         start = opts.date;
         end = opts.endDate;
-        locationInput.value = '';
-        statusInput.value = 'active';
-        descriptionInput.value = '';
+        locationInput.value = prefill.location || '';
+        statusInput.value = prefill.status || 'active';
+        descriptionInput.value = prefill.description || '';
         recur = null;
     }
 
@@ -535,6 +537,25 @@ popoverDeleteButton.addEventListener('click', function () {
     } else {
         ev.remove();
     }
+});
+
+// Always duplicates just the clicked occurrence as a standalone
+// non-recurring event, even for a recurring series - no scope prompt
+// needed, since the result is never itself part of that series.
+popoverDuplicateButton.addEventListener('click', function () {
+    let ev = popoverEvent;
+    hideEventPopover();
+    openModal('create', {
+        date: ev.start,
+        endDate: ev.end || ev.start,
+        allDay: ev.allDay,
+        prefill: {
+            title: ev.title,
+            location: ev.extendedProps.location,
+            status: ev.extendedProps.status,
+            description: ev.extendedProps.description
+        }
+    });
 });
 
 document.addEventListener('click', function (e) {
