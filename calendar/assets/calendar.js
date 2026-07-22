@@ -174,7 +174,10 @@ let popoverActions = document.getElementById('popover-actions');
 let popoverCloseButton = document.getElementById('popover-close');
 let popoverEditButton = document.getElementById('popover-edit');
 let popoverDuplicateButton = document.getElementById('popover-duplicate');
+let popoverExportButton = document.getElementById('popover-export');
 let popoverDeleteButton = document.getElementById('popover-delete');
+let importButton = document.getElementById('import-button');
+let icsFileInput = document.getElementById('ics-file-input');
 
 let editingEvent = null;
 let editScope = 'all';
@@ -291,6 +294,261 @@ function buildPlainEventPayload(id, title, allDay, start, end, extra) {
         end: end,
         extendedProps: Object.assign({ recur: null }, extra)
     };
+}
+
+// --- .ics (RFC 5545) export/import ---
+// Verified against the actual RFC 5545 spec text, not memory, for the
+// details most likely to break real-world portability: TEXT escaping
+// (section 3.3.11), line folding (section 3.1), and - critically - that
+// UNTIL must be floating local time with no "Z" when DTSTART is floating
+// local time (section 3.3.10). Getting that last one wrong would silently
+// break every recurring event's export despite looking fine in our own UI.
+
+function escapeIcsText(str) {
+    return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/;/g, '\\;')
+        .replace(/,/g, '\\,')
+        .replace(/\n/g, '\\n');
+}
+
+function unescapeIcsText(str) {
+    return str.replace(/\\(\\|;|,|[nN])/g, function (m, c) {
+        return (c === 'n' || c === 'N') ? '\n' : c;
+    });
+}
+
+function foldIcsLine(line) {
+    if (line.length <= 75) return line;
+    let out = line.slice(0, 75);
+    let rest = line.slice(75);
+    while (rest.length > 0) {
+        out += '\r\n ' + rest.slice(0, 74);
+        rest = rest.slice(74);
+    }
+    return out;
+}
+
+function icsDateStamp(date) {
+    return toDateInputValue(date).replace(/-/g, '');
+}
+
+function icsDateTimeStamp(date) {
+    return icsDateStamp(date) + 'T' + toTimeInputValue(date).replace(':', '') + '00';
+}
+
+function icsUtcNow() {
+    return new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+function icsDtLine(name, date, allDay) {
+    return allDay ? (name + ';VALUE=DATE:' + icsDateStamp(date)) : (name + ':' + icsDateTimeStamp(date));
+}
+
+// Converts our internal dash/colon date strings ("2026-08-15" or
+// "2026-08-15T07:00") to RFC 5545's compact form ("20260815" /
+// "20260815T070000").
+function toIcsCompact(dashColonStr, allDay) {
+    if (allDay) return dashColonStr.replace(/-/g, '');
+    let parts = dashColonStr.split('T');
+    return parts[0].replace(/-/g, '') + 'T' + parts[1].replace(':', '') + '00';
+}
+
+function recurToIcsRRuleLine(recur, allDay) {
+    let freqMap = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+    let parts = ['FREQ=' + freqMap[recur.freq]];
+    if (recur.interval > 1) parts.push('INTERVAL=' + recur.interval);
+    if (recur.end === 'count' && recur.count) {
+        parts.push('COUNT=' + recur.count);
+    } else if (recur.end === 'until' && recur.until) {
+        parts.push('UNTIL=' + toIcsCompact(formatUntil(recur.until, recur.dtstart, allDay), allDay));
+    }
+    return 'RRULE:' + parts.join(';');
+}
+
+function recurToIcsExdateLine(recur, allDay) {
+    if (!recur.exdates || !recur.exdates.length) return null;
+    let values = recur.exdates.map(function (s) { return toIcsCompact(s, allDay); });
+    return (allDay ? 'EXDATE;VALUE=DATE:' : 'EXDATE:') + values.join(',');
+}
+
+function eventToIcsLines(ev) {
+    let lines = ['BEGIN:VEVENT', 'UID:' + ev.id + '@peergos-calendar', 'DTSTAMP:' + icsUtcNow()];
+    let recur = ev.extendedProps.recur;
+
+    if (recur) {
+        let dtstart = ev.allDay ? new Date(recur.dtstart + 'T00:00') : new Date(recur.dtstart);
+        let durationMs = (ev.end || ev.start).getTime() - ev.start.getTime();
+        lines.push(icsDtLine('DTSTART', dtstart, ev.allDay));
+        lines.push(icsDtLine('DTEND', new Date(dtstart.getTime() + durationMs), ev.allDay));
+        lines.push(recurToIcsRRuleLine(recur, ev.allDay));
+        let exdateLine = recurToIcsExdateLine(recur, ev.allDay);
+        if (exdateLine) lines.push(exdateLine);
+    } else {
+        lines.push(icsDtLine('DTSTART', ev.start, ev.allDay));
+        lines.push(icsDtLine('DTEND', ev.end || ev.start, ev.allDay));
+    }
+
+    lines.push('SUMMARY:' + escapeIcsText(ev.title));
+    if (ev.extendedProps.location) lines.push('LOCATION:' + escapeIcsText(ev.extendedProps.location));
+    if (ev.extendedProps.description) lines.push('DESCRIPTION:' + escapeIcsText(ev.extendedProps.description));
+    lines.push('STATUS:' + (ev.extendedProps.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'));
+    lines.push('END:VEVENT');
+    return lines;
+}
+
+function exportEventAsIcs(ev) {
+    let lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Peergos//Calendar 0.0.1//EN', 'CALSCALE:GREGORIAN']
+        .concat(eventToIcsLines(ev))
+        .concat(['END:VCALENDAR']);
+    let text = lines.map(foldIcsLine).join('\r\n') + '\r\n';
+    let blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement('a');
+    a.href = url;
+    a.download = (ev.title || 'event').replace(/[^a-z0-9-_]+/gi, '_') + '.ics';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function unfoldIcsLines(text) {
+    let raw = text.split(/\r\n|\n|\r/);
+    let lines = [];
+    for (let i = 0; i < raw.length; i++) {
+        if (lines.length && (raw[i][0] === ' ' || raw[i][0] === '\t')) {
+            lines[lines.length - 1] += raw[i].slice(1);
+        } else if (raw[i].length) {
+            lines.push(raw[i]);
+        }
+    }
+    return lines;
+}
+
+function parseIcsPropertyLine(line) {
+    let colonIdx = line.indexOf(':');
+    if (colonIdx === -1) return null;
+    let head = line.slice(0, colonIdx);
+    let value = line.slice(colonIdx + 1);
+    let headParts = head.split(';');
+    let params = {};
+    for (let i = 1; i < headParts.length; i++) {
+        let eq = headParts[i].indexOf('=');
+        if (eq !== -1) params[headParts[i].slice(0, eq).toUpperCase()] = headParts[i].slice(eq + 1);
+    }
+    return { name: headParts[0].toUpperCase(), params: params, value: value };
+}
+
+// TZID-qualified values (a named zone, not floating/UTC) are read as
+// floating local time - i.e. the wall-clock numbers are kept but the zone
+// itself isn't converted. Full IANA timezone conversion is a much bigger
+// undertaking than this pass covers; documented as a known limitation.
+function parseIcsDateValue(value, params) {
+    let m = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
+    if (!m) return null;
+    let y = +m[1], mo = +m[2] - 1, d = +m[3];
+    if (params.VALUE === 'DATE' || !m[4]) {
+        return { date: new Date(y, mo, d), allDay: true };
+    }
+    let hh = +m[4], mi = +m[5], ss = +m[6];
+    if (m[7]) return { date: new Date(Date.UTC(y, mo, d, hh, mi, ss)), allDay: false };
+    return { date: new Date(y, mo, d, hh, mi, ss), allDay: false };
+}
+
+function parseIcsRRuleValue(value) {
+    let freqMap = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' };
+    let props = {};
+    value.split(';').forEach(function (p) {
+        let eq = p.indexOf('=');
+        if (eq !== -1) props[p.slice(0, eq).toUpperCase()] = p.slice(eq + 1);
+    });
+    let freq = freqMap[props.FREQ];
+    if (!freq) return null; // HOURLY/MINUTELY/SECONDLY - not in our UI's scope
+    if (props.BYDAY || props.BYMONTHDAY || props.BYMONTH || props.BYYEARDAY || props.BYWEEKNO || props.BYSETPOS) {
+        console.warn('Imported RRULE uses BY* parts not supported by this app\'s UI - simplified to plain ' + freq + ' recurrence: ' + value);
+    }
+    let recur = { freq: freq, interval: props.INTERVAL ? parseInt(props.INTERVAL, 10) : 1, end: 'never', until: null, count: null, exdates: [] };
+    if (props.COUNT) {
+        recur.end = 'count';
+        recur.count = parseInt(props.COUNT, 10);
+    } else if (props.UNTIL) {
+        let parsed = parseIcsDateValue(props.UNTIL, {});
+        if (parsed) {
+            recur.end = 'until';
+            recur.until = toDateInputValue(parsed.date);
+        }
+    }
+    return recur;
+}
+
+function parseIcsVevent(rawLines) {
+    let props = rawLines.map(parseIcsPropertyLine).filter(Boolean);
+    let find = function (name) { return props.find(function (p) { return p.name === name; }); };
+    let findAll = function (name) { return props.filter(function (p) { return p.name === name; }); };
+
+    let dtstartLine = find('DTSTART');
+    if (!dtstartLine) return null;
+    let startParsed = parseIcsDateValue(dtstartLine.value, dtstartLine.params);
+    if (!startParsed) return null;
+    let allDay = startParsed.allDay;
+    let start = startParsed.date;
+
+    let dtendLine = find('DTEND');
+    let end;
+    if (dtendLine) {
+        let endParsed = parseIcsDateValue(dtendLine.value, dtendLine.params);
+        end = endParsed ? endParsed.date : start;
+    } else {
+        end = allDay ? addDays(start, 1) : new Date(start.getTime() + 3600000);
+    }
+
+    let rruleLine = find('RRULE');
+    let recur = rruleLine ? parseIcsRRuleValue(rruleLine.value) : null;
+    if (recur) {
+        recur.dtstart = allDay ? toDateInputValue(start) : (toDateInputValue(start) + 'T' + toTimeInputValue(start));
+        findAll('EXDATE').forEach(function (l) {
+            l.value.split(',').forEach(function (v) {
+                let parsed = parseIcsDateValue(v.trim(), l.params);
+                if (parsed) recur.exdates.push(allDay ? toDateInputValue(parsed.date) : (toDateInputValue(parsed.date) + 'T' + toTimeInputValue(parsed.date)));
+            });
+        });
+    }
+
+    let summaryLine = find('SUMMARY');
+    let locationLine = find('LOCATION');
+    let descLine = find('DESCRIPTION');
+    let statusLine = find('STATUS');
+    let title = summaryLine ? unescapeIcsText(summaryLine.value) : '(untitled)';
+    let extra = {
+        location: locationLine ? unescapeIcsText(locationLine.value) : '',
+        status: (statusLine && statusLine.value.toUpperCase() === 'CANCELLED') ? 'cancelled' : 'active',
+        description: descLine ? unescapeIcsText(descLine.value) : ''
+    };
+
+    let id = nextEventId();
+    if (recur) return buildRecurringEventPayload(id, title, allDay, extra, recur, end.getTime() - start.getTime());
+    return buildPlainEventPayload(id, title, allDay, start, end, extra);
+}
+
+function parseIcsFile(text) {
+    let lines = unfoldIcsLines(text);
+    let events = [];
+    let current = null;
+    lines.forEach(function (line) {
+        if (line === 'BEGIN:VEVENT') {
+            current = [];
+        } else if (line === 'END:VEVENT') {
+            if (current) {
+                let ev = parseIcsVevent(current);
+                if (ev) events.push(ev);
+            }
+            current = null;
+        } else if (current) {
+            current.push(line);
+        }
+    });
+    return events;
 }
 
 // Shared by "delete this occurrence" and "edit this occurrence" (the
@@ -558,6 +816,27 @@ popoverDuplicateButton.addEventListener('click', function () {
     });
 });
 
+popoverExportButton.addEventListener('click', function () {
+    exportEventAsIcs(popoverEvent);
+    hideEventPopover();
+});
+
+importButton.addEventListener('click', function () {
+    icsFileInput.click();
+});
+
+icsFileInput.addEventListener('change', function () {
+    let file = icsFileInput.files[0];
+    if (!file) return;
+    let reader = new FileReader();
+    reader.onload = function () {
+        let events = parseIcsFile(reader.result);
+        events.forEach(function (data) { calendar.addEvent(data); });
+        icsFileInput.value = '';
+    };
+    reader.readAsText(file);
+});
+
 document.addEventListener('click', function (e) {
     if (popover.classList.contains('open') && !popover.contains(e.target)) {
         hideEventPopover();
@@ -620,6 +899,8 @@ deleteButton.addEventListener('click', function () {
     performScopedDelete(editingEvent, editScope);
     closeModal();
 });
+
+document.getElementById('utility-bar').style.display = isWritable ? '' : 'none';
 
 let calendarEl = document.getElementById('calendar');
 let calendar = new FullCalendar.Calendar(calendarEl, {

@@ -43,6 +43,35 @@ services like Google's, visually borrowing Google's specific icon
 language felt like the wrong call even though it's freely licensed. Tabler
 is a neutral, modern outline-icon set with no big-tech branding attached.
 
+`.ics` export (single event, from the popover) and import (bulk, via the
+icon in the small utility bar above the calendar's own toolbar — a
+right-aligned strip of icon-only buttons, matching the Google Calendar/
+Gmail pattern for secondary actions like this, and built to hold Search
+alongside it once that's built) are implemented and hand-verified against
+the actual RFC 5545 spec text, not memory — see `calendar.js`'s "`.ics`
+(RFC 5545) export/import" section. Round-trip tested (export → re-import,
+in-app) for a plain event, a `COUNT`-based recurring series, a
+`UNTIL`-based series with an `EXDATE` exception, an all-day multi-day
+event, and text containing commas/semicolons/newlines/backslashes — all
+byte-identical after the round trip. Also tested importing a realistic
+external `.ics` file (Google-Calendar-shaped, `TZID` + `BYDAY`) to confirm
+graceful degradation rather than a crash — see "Known `.ics` limitations"
+below for exactly what that degrades to.
+
+**Known `.ics` limitations** (real, not yet closed — not silently
+glossed over): imported events using a named `TZID` (e.g.
+`TZID=America/New_York`) are read as floating local time — the wall-clock
+numbers are kept, but the zone itself isn't converted, since full IANA
+timezone/DST handling is a much bigger undertaking than this pass covers.
+`RRULE` parts we don't support in our UI (`BYDAY`, `BYMONTHDAY`,
+`BYMONTH`, `BYYEARDAY`, `BYWEEKNO`, `BYSETPOS`) are dropped on import,
+simplified down to plain `FREQ`+`INTERVAL` (logged via `console.warn`,
+not silently discarded without a trace) — an imported "every Mon/Wed/Fri"
+event becomes plain weekly. Import is bulk-only for now; the plan's
+"staged per-event confirmation" import mode (review each event before
+it's added) is deferred, same pattern as recurrence's whole-series-first
+approach earlier in this project.
+
 **Blocked on:** the `READ_CALENDAR`/`WRITE_CALENDAR` permissions below —
 not yet implemented on the `peergos` core side. Once they land, the mock
 event source in `calendar.js` gets swapped for real
@@ -109,8 +138,8 @@ against the shape that swap will need.
 - Event fields: title, location, description, color (per-calendar), status
 - Multiple calendars: create/rename/delete/recolor, show/hide filtering
 - Sharing a calendar or a single event
-- `.ics` import (bulk and staged per-event) and export (single event,
-  email)
+- `.ics` import (bulk done, staged per-event confirmation still open) and
+  export (single event done, see Status above; email an event still open)
 - Read-only mode, whole-calendar or per-event
 - Dark mode via the sandbox runtime's `?theme=` param
 - Timezone handling, guest/secret-link access
@@ -227,8 +256,8 @@ https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/<icon>.
 
 Icons currently used: `clock` (time), `map-pin` (location), `repeat`,
 `flag` (status), `notes` (description), `x` (close), `pencil` (edit),
-`copy` (duplicate), `trash` (delete). Tabler's SVGs already ship with
-`stroke="currentColor"`
+`copy` (duplicate), `download` (export), `upload` (import), `trash`
+(delete). Tabler's SVGs already ship with `stroke="currentColor"`
 baked in, but that only matters once the markup is actually inline in the
 page — an `<img src="...svg">` renders the file in its own isolated
 document context, so `currentColor` there still resolves independently of
