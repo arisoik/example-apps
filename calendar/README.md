@@ -24,17 +24,31 @@ exceptions) and `UNTIL`-truncation + a new continuation series
 yet. See the feature-parity checklist below for what's still open.
 
 Interaction model follows the pattern established by Google Calendar/
-Outlook rather than a plain form-first flow: clicking an event shows a
-small positioned **preview popover** (time, location, repeat summary,
-description, edit/duplicate/delete icon buttons) instead of jumping
-straight into the edit form; creating a timed event supports click-*and*-
-drag to pick a range (`selectable`/`select`, not `dateClick`); both the
-event popup and the recurring-event scope prompt close on Escape or an
-outside click. **Duplicate** always creates a standalone, non-recurring
-copy of just the clicked occurrence (pre-filled into the create form, not
-silently created) — even when duplicating one occurrence of a recurring
-series, since the copy is never itself part of that series and shouldn't
-need the scope prompt recurring edits do.
+Outlook rather than a plain form-first flow: a single click on an event
+shows a small positioned **preview popover** (time, location, repeat
+summary, description, delete/edit/duplicate/export icon buttons, in that
+order — matches Google Calendar's own event popover, which puts Delete
+first rather than isolating it at the end); a **double click opens
+straight into editing** instead, matching desktop click-to-select/
+double-click-to-open conventions (Outlook and Google Calendar desktop
+both do this) — deliberately kept even though it has no touch equivalent,
+since it simply never fires on mobile and single click already reaches
+Edit one click further via the popover. Creating a timed event supports
+click-*and*-drag to pick a range (`selectable`/`select`, not `dateClick`);
+the event popup and the recurring-event scope prompt close on Escape or
+an outside click. Clicking outside the popover closes it and still lets
+the click act on whatever it landed on — switching straight to a
+different event's popover in one click, opening the search/import
+buttons normally. The one exception is day-grid `select` (clicking empty
+space to create a new event), swallowed via a capture-phase `mousedown`
+listener rather than passed through, since opening the create form as a
+side effect of dismissing a popover reads as broken in a way switching to
+a different event doesn't.
+**Duplicate** always creates a standalone, non-recurring copy of just the
+clicked occurrence (pre-filled into the create form, not silently created)
+— even when duplicating one occurrence of a recurring series, since the
+copy is never itself part of that series and shouldn't need the scope
+prompt recurring edits do.
 Icons throughout (`vendor/tabler-icons/`) are Tabler Icons — deliberately
 *not* Google's own Material Symbols, even though the interaction pattern
 above is modeled on Google Calendar: for a project like Peergos, whose
@@ -43,11 +57,42 @@ services like Google's, visually borrowing Google's specific icon
 language felt like the wrong call even though it's freely licensed. Tabler
 is a neutral, modern outline-icon set with no big-tech branding attached.
 
+**Search** is a command-palette-style overlay, not an anchored dropdown —
+a pill-shaped trigger in the utility bar (magnifying glass + "Search"
+label) opens a centered modal with a text input and a live results list
+below it, matching the visual pattern used by most modern app/docs search.
+No keyboard shortcut - deliberately click-only, not a hidden Ctrl+K/⌘K
+affordance a user has to already know about. Each result shows the same
+kind of information an event does elsewhere in this app — title, a
+repeat-icon badge if recurring, cancelled events struck through,
+date/time (or "All day"), and location. Requires a 2-character minimum
+(`MIN_SEARCH_QUERY_LENGTH`) before matching anything, since title,
+location, and description are all searched and a single-character query
+tends to match nearly everything through some field or other.
+Matching walks the FullCalendar event store's *defs* rather than
+`calendar.getEvents()`, since for a recurring series the latter only
+returns occurrences already expanded for the currently rendered view — a
+def stays searchable regardless of which month is on screen. A def with
+no active instance has `.start === null`, so `nearestRecurOccurrenceDate()`
+computes somewhere to jump to: the occurrence closest to the *start of
+today's day* (not the exact current time, so a daily event's own
+occurrence for today doesn't look "already past" once its time-of-day
+has elapsed), clamped to the series' own `COUNT`/`UNTIL` and nudged off
+any `EXDATE`, reusing the same stepping helpers the recurring-edit logic
+uses.
+Clicking a result navigates via `gotoDate()` (so a future backend search
+returning matches from unloaded months already works) and opens the
+event's own preview popover, matching Google Calendar's search-result
+behavior — a permanent state until dismissed, not a transient highlight
+that can be missed. `jumpToSearchResult()` re-resolves `ev` to a real
+rendered instance close to `jumpDate`, since a recurring series' master
+can have `.start === null` before `gotoDate()` makes an instance exist.
+Available in read-only mode (it doesn't mutate anything); Import is the
+only utility-bar icon hidden when `isPathWritable=false`. Escape and
+clicking the backdrop dismiss the modal, matching the other modals here.
+
 `.ics` export (single event, from the popover) and import (bulk, via the
-icon in the small utility bar above the calendar's own toolbar — a
-right-aligned strip of icon-only buttons, matching the Google Calendar/
-Gmail pattern for secondary actions like this, and built to hold Search
-alongside it once that's built) are implemented and hand-verified against
+icon in the same utility bar) are implemented and hand-verified against
 the actual RFC 5545 spec text, not memory — see `calendar.js`'s "`.ics`
 (RFC 5545) export/import" section. Round-trip tested (export → re-import,
 in-app) for a plain event, a `COUNT`-based recurring series, a
@@ -71,6 +116,23 @@ event becomes plain weekly. Import is bulk-only for now; the plan's
 "staged per-event confirmation" import mode (review each event before
 it's added) is deferred, same pattern as recurrence's whole-series-first
 approach earlier in this project.
+
+**Two bugs found and fixed in code that predates this session's search
+work.** Creating or duplicating an all-day event saved one extra day —
+`openModal()`'s create-mode branch was missing the `toFormEnd()`
+inclusive-display conversion its edit-mode branch already had. And the
+event popover could position itself on top of the event it describes:
+`positionPopover()` now defaults to below the anchor, only flipping
+above when below doesn't fit and above does without clamping (the usual
+Popper.js/Floating UI convention, matching Google Calendar's own event
+popover), and `showEventPopover()` re-measures the anchor once more via
+`setTimeout(fn, 0)` shortly after opening, since FullCalendar's day-grid
+row-height pass can settle an event into its final position slightly
+after the click handler runs. That re-measure prefers the originally
+clicked element over an id-based re-lookup, since a multi-day event's row
+segments and a recurring series' occurrences all share the same
+`data-search-event-id` — a re-lookup by id alone would always land on
+the first one rather than whichever was actually clicked.
 
 **Blocked on:** the `READ_CALENDAR`/`WRITE_CALENDAR` permissions below —
 not yet implemented on the `peergos` core side. Once they land, the mock
@@ -100,10 +162,14 @@ against the shape that swap will need.
   if it is in the outer calendar wrapper I can port it)." Not yet confirmed
   working from a sandboxed app context; check before building the sharing
   UI.
-- **Search is client-side, scoped to loaded events**, not a full-history
-  index — per ianopolous, "efficient search probably needs a new api" that
-  doesn't exist yet. Implemented behind a single lookup function so it can
-  later be swapped for a real backend search call without reworking the UI.
+- **Search is client-side**, not a full-history index — per ianopolous,
+  "efficient search probably needs a new api" that doesn't exist yet.
+  Implemented behind a single lookup function (`getSearchableEvents()`) so
+  it can later be swapped for a real backend search call without reworking
+  the UI. Matches against every event currently held in the FullCalendar
+  instance (title/location/description), including recurring series with
+  no occurrence in the current view — see Status above for how jumping to
+  those is handled.
 - **No drag-and-drop.** Moving an event is done via the edit popup's date
   field, not `eventDrop`/`eventResize`. Deliberate — FullCalendar has an
   open report of event-dragging not working inside an embedded Android
@@ -143,8 +209,8 @@ against the shape that swap will need.
 - Read-only mode, whole-calendar or per-event
 - Dark mode via the sandbox runtime's `?theme=` param
 - Timezone handling, guest/secret-link access
-- New: event search (loaded-events scope, see above); duplicate-event
-  action done (see Status above)
+- New: event search done (see Status above); duplicate-event action done
+  (see Status above)
 
 ## Vendored dependencies
 

@@ -60,6 +60,34 @@ function countOccurrencesBefore(dtstart, freq, interval, targetDate) {
     return count;
 }
 
+// Nearest occurrence to referenceDate, clamped to count/until and nudged
+// off any exdate. Compares against the start of referenceDate's day, not
+// its exact time - otherwise a daily event's occurrence for today looks
+// "already past" once its time-of-day has elapsed, and this skips ahead
+// to tomorrow instead of the occurrence actually shown in the grid today.
+function nearestRecurOccurrenceDate(recur, allDay, referenceDate) {
+    let dtstart = new Date(recur.dtstart);
+    let maxIndex = (recur.end === 'count' && recur.count) ? recur.count - 1 : Infinity;
+    let dayStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+    let index = countOccurrencesBefore(dtstart, recur.freq, recur.interval, dayStart);
+    if (recur.end === 'until' && recur.until) {
+        let untilDate = new Date(formatUntil(recur.until, recur.dtstart, allDay));
+        while (index > 0 && stepOccurrence(dtstart, recur.freq, recur.interval, index).getTime() > untilDate.getTime()) index--;
+    }
+    index = Math.max(0, Math.min(index, maxIndex));
+    let occurrenceStr = function (idx) {
+        let d = stepOccurrence(dtstart, recur.freq, recur.interval, idx);
+        return allDay ? toDateInputValue(d) : (toDateInputValue(d) + 'T' + toTimeInputValue(d));
+    };
+    let exdates = recur.exdates || [];
+    let guard = 0;
+    while (exdates.indexOf(occurrenceStr(index)) !== -1 && guard < 1000) {
+        index = index < maxIndex ? index + 1 : index - 1;
+        guard++;
+    }
+    return stepOccurrence(dtstart, recur.freq, recur.interval, index);
+}
+
 // RFC5545 requires UNTIL's precision to match DTSTART's - a date-only
 // UNTIL on a timed series would exclude that day's own occurrence, since
 // its time is always later than midnight. Carry the series' own
@@ -178,6 +206,10 @@ let popoverExportButton = document.getElementById('popover-export');
 let popoverDeleteButton = document.getElementById('popover-delete');
 let importButton = document.getElementById('import-button');
 let icsFileInput = document.getElementById('ics-file-input');
+let searchButton = document.getElementById('search-button');
+let searchModalBackdrop = document.getElementById('search-modal-backdrop');
+let searchInput = document.getElementById('search-input');
+let searchResults = document.getElementById('search-results');
 
 let editingEvent = null;
 let editScope = 'all';
@@ -611,15 +643,26 @@ function formatPopoverTime(ev) {
     return dateFmt.format(ev.start) + ' · ' + timeFmt.format(ev.start) + ' – ' + timeFmt.format(ev.end || ev.start);
 }
 
+// Finds an event's current DOM element by id - eventDidMount (below)
+// stamps every rendered event with data-search-event-id, not just for
+// search.
+function findEventAnchorEl(id) {
+    return document.querySelector('[data-search-event-id="' + CSS.escape(id) + '"]');
+}
+
 function positionPopover(anchorEl) {
     let anchorRect = anchorEl.getBoundingClientRect();
     let popRect = popover.getBoundingClientRect();
     let left = Math.min(anchorRect.left, window.innerWidth - popRect.width - 8);
     left = Math.max(8, left);
-    let top = anchorRect.bottom + 8;
-    if (top + popRect.height > window.innerHeight - 8) {
-        top = Math.max(8, anchorRect.top - popRect.height - 8);
-    }
+    // Prefer below; flip above only if below doesn't fit and above does
+    // fit without clamping - clamping "above" on a short window would
+    // otherwise slide the popover back down over the anchor it describes.
+    let below = anchorRect.bottom + 8;
+    let fitsBelow = below + popRect.height <= window.innerHeight - 8;
+    let above = anchorRect.top - popRect.height - 8;
+    let fitsAbove = above >= 8;
+    let top = fitsBelow ? below : (fitsAbove ? above : below);
     popover.style.left = left + 'px';
     popover.style.top = top + 'px';
 }
@@ -645,11 +688,157 @@ function showEventPopover(ev, anchorEl) {
 
     popover.classList.add('open');
     positionPopover(anchorEl);
+    // Re-position once more shortly after - FullCalendar's day-grid
+    // row-height pass can still settle the anchor into its final position
+    // after this synchronous call (a plain setTimeout observes it; nested
+    // requestAnimationFrame calls don't, at least in this environment).
+    // Prefers the original anchorEl if still attached, since it's the
+    // exact segment/occurrence clicked - a multi-day event's row segments
+    // and a recurring series' occurrences all share the same
+    // data-search-event-id, so an id-based re-lookup alone would always
+    // land on the first one rather than whichever was actually clicked.
+    setTimeout(function () {
+        if (!popover.classList.contains('open')) return;
+        positionPopover(anchorEl.isConnected ? anchorEl : (findEventAnchorEl(ev.id) || anchorEl));
+    }, 0);
 }
 
 function hideEventPopover() {
     popoverEvent = null;
     popover.classList.remove('open');
+}
+
+// Client-side only (no backend search API yet, per ianopolous on
+// Peergos/web-ui#757) - kept behind this one function so swapping to a
+// real endpoint later is a data-source change, not a UI rewrite. Walks
+// the event store's defs rather than calendar.getEvents(), which for a
+// recurring series only returns occurrences within the currently
+// rendered range - defs keep a series searchable from any month.
+// getEventById() on a def with no active instance still returns a full
+// EventApi, just with .start === null, hence nearestRecurOccurrenceDate()
+// below. Requires MIN_SEARCH_QUERY_LENGTH chars, since matching
+// title/location/description means a 1-char query matches almost
+// everything through some field or other.
+let MIN_SEARCH_QUERY_LENGTH = 2;
+
+function getSearchableEvents(query) {
+    let q = query.trim().toLowerCase();
+    if (q.length < MIN_SEARCH_QUERY_LENGTH) return [];
+    let defs = calendar.getCurrentData().eventStore.defs;
+    let seen = {};
+    let results = [];
+    Object.keys(defs).forEach(function (key) {
+        let publicId = defs[key].publicId;
+        if (!publicId || seen[publicId]) return;
+        seen[publicId] = true;
+        let ev = calendar.getEventById(publicId);
+        if (!ev) return;
+        let title = (ev.title || '').toLowerCase();
+        let location = (ev.extendedProps.location || '').toLowerCase();
+        let description = (ev.extendedProps.description || '').toLowerCase();
+        if (title.indexOf(q) === -1 && location.indexOf(q) === -1 && description.indexOf(q) === -1) return;
+        let jumpDate = ev.start || nearestRecurOccurrenceDate(ev.extendedProps.recur, ev.allDay, new Date());
+        results.push({ event: ev, jumpDate: jumpDate });
+    });
+    results.sort(function (a, b) { return a.jumpDate - b.jumpDate; });
+    return results;
+}
+
+function formatSearchResultMeta(ev, jumpDate) {
+    let dateFmt = new Intl.DateTimeFormat(navigator.language, { weekday: 'short', month: 'short', day: 'numeric' });
+    let text = dateFmt.format(jumpDate);
+    if (!ev.allDay) {
+        let timeFmt = new Intl.DateTimeFormat(navigator.language, { hour: 'numeric', minute: '2-digit' });
+        text += ' · ' + timeFmt.format(jumpDate);
+    }
+    if (ev.extendedProps.location) text += ' · ' + ev.extendedProps.location;
+    return text;
+}
+
+function renderSearchResults(query) {
+    searchResults.innerHTML = '';
+    let trimmed = query.trim();
+    if (!trimmed) return;
+    if (trimmed.length < MIN_SEARCH_QUERY_LENGTH) {
+        let hint = document.createElement('div');
+        hint.className = 'search-empty';
+        hint.textContent = 'Keep typing (' + MIN_SEARCH_QUERY_LENGTH + '+ characters)…';
+        searchResults.appendChild(hint);
+        return;
+    }
+    let matches = getSearchableEvents(query);
+    if (!matches.length) {
+        let empty = document.createElement('div');
+        empty.className = 'search-empty';
+        empty.textContent = 'No matching events';
+        searchResults.appendChild(empty);
+        return;
+    }
+    matches.slice(0, 20).forEach(function (match) {
+        let ev = match.event;
+        let item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'search-result-item';
+
+        let titleRow = document.createElement('div');
+        titleRow.className = 'search-result-title-row';
+        let titleSpan = document.createElement('span');
+        titleSpan.className = 'search-result-title';
+        if (ev.extendedProps.status === 'cancelled') titleSpan.classList.add('search-result-cancelled');
+        titleSpan.textContent = ev.title;
+        titleRow.appendChild(titleSpan);
+        if (ev.extendedProps.recur) {
+            let badge = document.createElement('img');
+            badge.className = 'search-result-badge';
+            badge.src = 'vendor/tabler-icons/outline/repeat.svg';
+            badge.alt = 'Recurring';
+            badge.title = 'Recurring';
+            titleRow.appendChild(badge);
+        }
+
+        let metaRow = document.createElement('div');
+        metaRow.className = 'search-result-meta';
+        metaRow.textContent = formatSearchResultMeta(ev, match.jumpDate);
+
+        item.appendChild(titleRow);
+        item.appendChild(metaRow);
+        // Without this, the click also reaches the document-level "click
+        // outside closes popover" listener after jumpToSearchResult() has
+        // already opened it, closing it again in the same event.
+        item.addEventListener('click', function (e) {
+            e.stopPropagation();
+            jumpToSearchResult(ev, match.jumpDate);
+        });
+        searchResults.appendChild(item);
+    });
+}
+
+// Navigates then opens the event's popover, matching Google Calendar's
+// own search-result behavior rather than a transient highlight. `ev` can
+// be a recurring series' master with no real instance (.start === null)
+// if it wasn't previously rendered, so re-resolves to a real instance -
+// whichever visible occurrence is closest to jumpDate, since several can
+// share the same id - now that gotoDate() has made one exist.
+function jumpToSearchResult(ev, jumpDate) {
+    closeSearchModal();
+    calendar.gotoDate(jumpDate);
+    let instance = calendar.getEvents().filter(function (e) { return e.id === ev.id; })
+        .reduce(function (best, e) {
+            return !best || Math.abs(e.start - jumpDate) < Math.abs(best.start - jumpDate) ? e : best;
+        }, null) || ev;
+    let anchorEl = findEventAnchorEl(ev.id);
+    if (anchorEl) showEventPopover(instance, anchorEl);
+}
+
+function openSearchModal() {
+    searchModalBackdrop.classList.add('open');
+    searchInput.value = '';
+    searchResults.innerHTML = '';
+    searchInput.focus();
+}
+
+function closeSearchModal() {
+    searchModalBackdrop.classList.remove('open');
 }
 
 function performScopedDelete(ev, scope) {
@@ -705,7 +894,11 @@ function openModal(mode, opts) {
         titleInput.value = prefill.title || '';
         allDay = opts.allDay || false;
         start = opts.date;
-        end = opts.endDate;
+        // opts.endDate is exclusive for an all-day range, same as an
+        // edited event's ev.end - needs the same toFormEnd() conversion
+        // edit-mode applies below, or a single-day click shows (and saves)
+        // as two days.
+        end = toFormEnd(opts.endDate, allDay);
         locationInput.value = prefill.location || '';
         statusInput.value = prefill.status || 'active';
         descriptionInput.value = prefill.description || '';
@@ -777,14 +970,20 @@ scopeModalBackdrop.addEventListener('click', function (e) {
 
 popoverCloseButton.addEventListener('click', hideEventPopover);
 
-popoverEditButton.addEventListener('click', function () {
-    let ev = popoverEvent;
-    hideEventPopover();
+// Shared by the popover's Edit button and double-clicking an event
+// directly - both should go through the same recurring-scope prompt.
+function openEditFor(ev) {
     if (isWritable && ev.extendedProps.recur) {
         openScopeModal(ev, 'edit');
     } else {
         openModal('edit', { event: ev, scope: 'all' });
     }
+}
+
+popoverEditButton.addEventListener('click', function () {
+    let ev = popoverEvent;
+    hideEventPopover();
+    openEditFor(ev);
 });
 
 popoverDeleteButton.addEventListener('click', function () {
@@ -837,17 +1036,45 @@ icsFileInput.addEventListener('change', function () {
     reader.readAsText(file);
 });
 
+searchButton.addEventListener('click', openSearchModal);
+
+searchInput.addEventListener('input', function () {
+    renderSearchResults(searchInput.value);
+});
+
+searchModalBackdrop.addEventListener('click', function (e) {
+    if (e.target === searchModalBackdrop) closeSearchModal();
+});
+
+// Clicking outside the popover closes it and still reaches whatever it
+// landed on - switching straight to a different event's popover in one
+// click, not requiring a separate click per event.
 document.addEventListener('click', function (e) {
     if (popover.classList.contains('open') && !popover.contains(e.target)) {
         hideEventPopover();
     }
 });
 
+// The one exception: day-grid `select` (clicking empty space to create a
+// new event) - opening the create form as a side effect of dismissing a
+// popover reads as broken, so it's swallowed via mousedown/capture-phase
+// rather than passed through. Has to be mousedown, not click: select is
+// driven by mousedown/mouseup and has already run by the time a
+// click-based listener could react. Excludes clicks on an actual event
+// so eventClick (which needs a real "click" event to fire) still works.
+document.addEventListener('mousedown', function (e) {
+    if (!popover.classList.contains('open')) return;
+    if (popover.contains(e.target)) return;
+    if (e.target.closest('[data-search-event-id]')) return;
+    e.stopPropagation();
+}, true);
+
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (modalBackdrop.classList.contains('open')) closeModal();
     else if (scopeModalBackdrop.classList.contains('open')) closeScopeModal();
     else if (popover.classList.contains('open')) hideEventPopover();
+    else if (searchModalBackdrop.classList.contains('open')) closeSearchModal();
 });
 
 form.addEventListener('submit', function (e) {
@@ -900,7 +1127,14 @@ deleteButton.addEventListener('click', function () {
     closeModal();
 });
 
-document.getElementById('utility-bar').style.display = isWritable ? '' : 'none';
+// Search is read-only and stays available without write permission;
+// only Import (which adds data) is hidden.
+importButton.style.display = isWritable ? '' : 'none';
+
+// eventClick fires on both clicks of a double-click, so the first
+// click's popover is deferred behind a short timer - a second click
+// arriving before it fires cancels the popover and opens edit instead.
+let eventClickTimer = null;
 
 let calendarEl = document.getElementById('calendar');
 let calendar = new FullCalendar.Calendar(calendarEl, {
@@ -917,13 +1151,26 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     eventClass: function (info) {
         return info.event.extendedProps.status === 'cancelled' ? 'fc-event-cancelled' : '';
     },
+    eventDidMount: function (info) {
+        info.el.dataset.searchEventId = info.event.id;
+    },
     selectable: isWritable,
     select: function (info) {
         openModal('create', { date: info.start, endDate: info.end, allDay: info.allDay });
     },
     eventClick: function (info) {
         info.jsEvent.stopPropagation();
-        showEventPopover(info.event, info.el);
+        if (eventClickTimer) {
+            clearTimeout(eventClickTimer);
+            eventClickTimer = null;
+            hideEventPopover();
+            openEditFor(info.event);
+            return;
+        }
+        eventClickTimer = setTimeout(function () {
+            eventClickTimer = null;
+            showEventPopover(info.event, info.el);
+        }, 300);
     }
 });
 calendar.render();

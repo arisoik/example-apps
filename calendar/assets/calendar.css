@@ -11,9 +11,8 @@ body {
 }
 
 /* Slim utility strip above the calendar's own toolbar, matching the
-   Google Calendar/Gmail pattern of a right-aligned row of small icon-only
-   buttons (search, settings, etc. all live here) rather than one-off
-   labeled buttons - built to hold more than just Import as they're added. */
+   Google Calendar/Gmail pattern of a right-aligned row of secondary
+   actions (search, import, etc.) rather than one-off labeled buttons. */
 #utility-bar {
   flex: 0 0 auto;
   padding: 6px 8px 0;
@@ -21,6 +20,131 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 2px;
+}
+
+.search-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  font: inherit;
+  font-size: .9em;
+}
+
+.search-trigger:hover {
+  background: #f5f5f5;
+  border-color: #ccc;
+}
+
+.search-trigger-label {
+  color: #666;
+}
+
+.search-modal-backdrop {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.search-modal {
+  width: 480px;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+
+.search-modal-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eee;
+  color: #888;
+  flex: 0 0 auto;
+}
+
+.search-modal-input-row svg {
+  flex: 0 0 auto;
+}
+
+.search-modal-input-row input[type="text"] {
+  flex: 1 1 auto;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 1.05em;
+  color: #222;
+  background: transparent;
+}
+
+.search-results {
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.search-result-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.search-result-item:hover {
+  background: #f0f0f0;
+}
+
+.search-result-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-result-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.search-result-cancelled {
+  text-decoration: line-through;
+  opacity: .6;
+}
+
+.search-result-badge {
+  width: 14px;
+  height: 14px;
+  opacity: .55;
+  flex: 0 0 auto;
+}
+
+.search-result-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .8em;
+  color: #666;
+}
+
+.search-empty {
+  padding: 16px 10px;
+  color: #666;
+  font-size: .9em;
+  text-align: center;
 }
 
 #calendar {
