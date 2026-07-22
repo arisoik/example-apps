@@ -134,6 +134,79 @@ segments and a recurring series' occurrences all share the same
 `data-search-event-id` — a re-lookup by id alone would always land on
 the first one rather than whichever was actually clicked.
 
+**Multiple calendars** work the way Google Calendar/Outlook/Apple Calendar
+all do it: a persistent left sidebar listing each calendar with a colored
+checkbox (show/hide) and a "⋮" menu (Edit — name + color together in one
+modal, not separate actions — and Delete, which cascades to that
+calendar's own events after a native `confirm()`; deleting the last
+remaining calendar is blocked with a native `alert()`). Colors come from
+a small fixed palette (`CALENDAR_COLORS`), not free-form picking, same
+reasoning as the icon-set choice elsewhere in this app — a few
+pre-chosen, legible colors beats letting someone land on unreadable white
+text on pale yellow. The sidebar is persistent on desktop and an
+off-canvas drawer on mobile (`max-width: 700px`), toggled by a hamburger
+button that's hidden entirely above that width, with a dimmed backdrop
+that closes it on tap — collapsing the sidebar on *desktop* to reclaim
+grid space, which Google Calendar's own desktop UI also offers, is a
+deliberately deferred nice-to-have, not built here.
+Visibility filtering uses FullCalendar's own per-event `display` property
+(`'auto'`/`'none'`) via `EventApi.setProp()`, not CSS — CSS would still
+leave a hidden event's space reserved in FullCalendar's own row-height
+and "+N more" calculations, since FullCalendar wouldn't know it's
+supposed to be excluded from them.
+**Found the hard way: this vendored FullCalendar bundle silently ignores
+the `backgroundColor`/`borderColor`/`textColor` per-event properties
+documented for FullCalendar generally** — confirmed by grepping the
+bundle itself (zero occurrences of any of those three strings) after
+setting them produced no visible change and left `EventApi.backgroundColor`
+`null`. The actual mechanism this bundle uses is a single `color`
+property per event (confirmed via the internal event def's `ui.color`
+field actually populating, and the rendered element's own
+`--fc-event-color` inline custom property reflecting it) — every color
+assignment in this codebase (mock events, `buildPlainEventPayload`/
+`buildRecurringEventPayload`, recoloring via the calendar Edit modal)
+uses `color`, not the separate background/border/text properties. Worth
+re-checking against the CHANGELOG on any future FullCalendar version bump,
+same as the `@fullcalendar/rrule` duration bug below.
+New events default to whichever calendar is first in the list; imported
+`.ics` events (which have no concept of "our calendars") land there too.
+A calendar picker (`<select>`, populated from `mockCalendars`) sits near
+the top of the event form, right under Title.
+
+**The primary calendar (`Personal`, `cal.primary === true`) can't be
+deleted** — matches Google Calendar/Outlook/Apple Calendar, which all
+protect your primary calendar the same way (rename/recolor it, just not
+remove it). Enforced in two places, both checking `cal.primary`: the
+sidebar's "⋮" menu doesn't offer Delete for it at all, and its Edit
+modal's own Delete button is hidden too, since the two decide whether to
+show a Delete affordance independently of each other. Deleting any other
+calendar goes through a real confirm dialog styled like the rest of this
+app (`openConfirmModal()`, generic enough to reuse for a future
+destructive action), not the browser's native `confirm()`.
+The sidebar collapses on desktop now too, not just as a mobile drawer -
+the same toggle button branches on `window.innerWidth` at click time
+(`MOBILE_BREAKPOINT = 700`, matching the CSS media query) since the two
+behaviors are different enough (an off-canvas overlay with a dimming
+backdrop vs. a persistent column collapsing to zero width in place) that
+one CSS class can't reasonably drive both.
+**Two real click-handling bugs found via live testing.** A calendar "⋮"
+menu is tall enough to overlap the row below it, so a click aimed at that
+row's kebab button landed on the open menu instead (WebDriver's own
+"element click intercepted" error confirmed this) and, since that read as
+"inside the menu, do nothing," left the menu looking stuck open — fixed
+by only exempting the menu's own buttons from the outside-click check,
+not its blank space. Separately, both the calendar-menu-closer and the
+event popover's outside-click-closer are bubble-phase `document`
+listeners, and each could be silently skipped by an unrelated
+`stopPropagation()` call between the click target and `document` -
+`eventClick`'s own `stopPropagation()` meant clicking an event never
+closed an open calendar menu at all, and a calendar kebab button's
+`stopPropagation()` meant clicking it never closed an open popover.
+Both switched to capture phase, which runs before any `stopPropagation()`
+downstream - "switch straight to a different event's popover in one
+click" still works afterward, since capture doesn't stop propagation
+itself.
+
 **Blocked on:** the `READ_CALENDAR`/`WRITE_CALENDAR` permissions below —
 not yet implemented on the `peergos` core side. Once they land, the mock
 event source in `calendar.js` gets swapped for real
@@ -203,6 +276,7 @@ against the shape that swap will need.
 - Recurring edits scoped to "this event" / "this and future" / "all events"
 - Event fields: title, location, description, color (per-calendar), status
 - Multiple calendars: create/rename/delete/recolor, show/hide filtering
+  (done, see Status above)
 - Sharing a calendar or a single event
 - `.ics` import (bulk done, staged per-event confirmation still open) and
   export (single event done, see Status above; email an event still open)

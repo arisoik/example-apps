@@ -107,6 +107,21 @@ function mockDate(dayOffset, hour, minute) {
 
 let gymStart = mockDate(0, 7, 0);
 
+// Fixed palette, not free-form color picking - matches Google Calendar's
+// own calendar-color picker (a small set of pre-chosen, legible colors)
+// rather than letting a user land on something unreadable against white
+// event text.
+let CALENDAR_COLORS = ['#3788d8', '#8e24aa', '#0b8043', '#e67c73', '#f4511e', '#616161'];
+
+// `primary: true` marks the one calendar that can never be deleted -
+// matches Google Calendar/Outlook/Apple Calendar, which all protect your
+// primary calendar the same way (you can rename or recolor it, just not
+// remove it - there always has to be somewhere for events to land).
+let mockCalendars = [
+    { id: 'cal-personal', name: 'Personal', color: CALENDAR_COLORS[0], visible: true, primary: true },
+    { id: 'cal-work', name: 'Work', color: CALENDAR_COLORS[1], visible: true }
+];
+
 let mockEvents = [
     {
         id: 'mock-1',
@@ -114,7 +129,8 @@ let mockEvents = [
         start: mockDate(1, 10, 0),
         end: mockDate(1, 11, 0),
         allDay: false,
-        extendedProps: { location: 'Meeting room 2', description: 'Weekly planning call', status: 'active', recur: null }
+        color: CALENDAR_COLORS[1],
+        extendedProps: { location: 'Meeting room 2', description: 'Weekly planning call', status: 'active', recur: null, calendarId: 'cal-work' }
     },
     {
         id: 'mock-2',
@@ -122,7 +138,8 @@ let mockEvents = [
         start: mockDate(3),
         end: mockDate(6),
         allDay: true,
-        extendedProps: { location: 'Lake house', description: '', status: 'active', recur: null }
+        color: CALENDAR_COLORS[1],
+        extendedProps: { location: 'Lake house', description: '', status: 'active', recur: null, calendarId: 'cal-work' }
     },
     {
         id: 'mock-3',
@@ -130,7 +147,8 @@ let mockEvents = [
         start: mockDate(-2, 9, 30),
         end: mockDate(-2, 10, 0),
         allDay: false,
-        extendedProps: { location: '', description: '', status: 'cancelled', recur: null }
+        color: CALENDAR_COLORS[0],
+        extendedProps: { location: '', description: '', status: 'cancelled', recur: null, calendarId: 'cal-personal' }
     },
     {
         id: 'mock-4',
@@ -138,8 +156,9 @@ let mockEvents = [
         allDay: false,
         rrule: { freq: 'daily', interval: 1, dtstart: toDateInputValue(gymStart) + 'T' + toTimeInputValue(gymStart), count: 10 },
         duration: { minutes: 45 },
+        color: CALENDAR_COLORS[0],
         extendedProps: {
-            location: 'Downtown gym', description: '', status: 'active',
+            location: 'Downtown gym', description: '', status: 'active', calendarId: 'cal-personal',
             recur: {
                 freq: 'daily', interval: 1, end: 'count', until: null, count: 10,
                 dtstart: toDateInputValue(gymStart) + 'T' + toTimeInputValue(gymStart), exdates: []
@@ -156,6 +175,7 @@ let theme = url.searchParams.get('theme');
 let modalBackdrop = document.getElementById('event-modal-backdrop');
 let form = document.getElementById('event-form');
 let titleInput = document.getElementById('event-title');
+let calendarSelectInput = document.getElementById('event-calendar');
 let allDayInput = document.getElementById('event-all-day');
 let startDateInput = document.getElementById('event-start-date');
 let startTimeInput = document.getElementById('event-start-time');
@@ -178,7 +198,7 @@ let saveButton = document.getElementById('event-save');
 let cancelButton = document.getElementById('event-cancel');
 let modalHeading = document.getElementById('event-modal-heading');
 let editableFields = [
-    titleInput, allDayInput, startDateInput, startTimeInput, endDateInput, endTimeInput,
+    titleInput, calendarSelectInput, allDayInput, startDateInput, startTimeInput, endDateInput, endTimeInput,
     locationInput, repeatFreqInput, repeatIntervalInput, repeatEndInput, repeatUntilInput,
     repeatCountInput, statusInput, descriptionInput
 ];
@@ -210,6 +230,23 @@ let searchButton = document.getElementById('search-button');
 let searchModalBackdrop = document.getElementById('search-modal-backdrop');
 let searchInput = document.getElementById('search-input');
 let searchResults = document.getElementById('search-results');
+
+let sidebar = document.getElementById('sidebar');
+let sidebarBackdrop = document.getElementById('sidebar-backdrop');
+let sidebarToggleButton = document.getElementById('sidebar-toggle-button');
+let calendarListEl = document.getElementById('calendar-list');
+let addCalendarButton = document.getElementById('add-calendar-button');
+let calendarModalBackdrop = document.getElementById('calendar-modal-backdrop');
+let calendarForm = document.getElementById('calendar-form');
+let calendarModalHeading = document.getElementById('calendar-modal-heading');
+let calendarNameInput = document.getElementById('calendar-name-input');
+let calendarColorSwatches = document.getElementById('calendar-color-swatches');
+let calendarDeleteButton = document.getElementById('calendar-delete');
+let calendarCancelButton = document.getElementById('calendar-cancel');
+let confirmModalBackdrop = document.getElementById('confirm-modal-backdrop');
+let confirmModalMessage = document.getElementById('confirm-modal-message');
+let confirmCancelButton = document.getElementById('confirm-cancel');
+let confirmOkButton = document.getElementById('confirm-ok');
 
 let editingEvent = null;
 let editScope = 'all';
@@ -294,13 +331,19 @@ function adjustRecurForFollowing(ev, masterRecur, allDay) {
 }
 
 function extraPropsOf(ev) {
-    return { location: ev.extendedProps.location, status: ev.extendedProps.status, description: ev.extendedProps.description };
+    return { location: ev.extendedProps.location, status: ev.extendedProps.status, description: ev.extendedProps.description, calendarId: ev.extendedProps.calendarId };
+}
+
+function colorForCalendarId(calendarId) {
+    let cal = getCalendarById(calendarId);
+    return cal ? cal.color : CALENDAR_COLORS[0];
 }
 
 function buildRecurringEventPayload(id, title, allDay, extra, recur, durationMs) {
     let rrule = { freq: recur.freq, interval: recur.interval, dtstart: recur.dtstart };
     if (recur.end === 'until' && recur.until) rrule.until = formatUntil(recur.until, recur.dtstart, allDay);
     if (recur.end === 'count' && recur.count) rrule.count = recur.count;
+    let color = colorForCalendarId(extra.calendarId);
     let data = {
         id: id,
         title: title,
@@ -311,6 +354,7 @@ function buildRecurringEventPayload(id, title, allDay, extra, recur, durationMs)
         // invisible in timeGrid views); the {milliseconds: N} object form
         // works correctly, so wrap it rather than pass the number directly
         duration: { milliseconds: durationMs },
+        color: color,
         extendedProps: Object.assign({ recur: recur }, extra)
     };
     if (recur.exdates && recur.exdates.length) data.exdate = recur.exdates.slice();
@@ -318,12 +362,14 @@ function buildRecurringEventPayload(id, title, allDay, extra, recur, durationMs)
 }
 
 function buildPlainEventPayload(id, title, allDay, start, end, extra) {
+    let color = colorForCalendarId(extra.calendarId);
     return {
         id: id,
         title: title,
         allDay: allDay,
         start: start,
         end: end,
+        color: color,
         extendedProps: Object.assign({ recur: null }, extra)
     };
 }
@@ -555,7 +601,10 @@ function parseIcsVevent(rawLines) {
     let extra = {
         location: locationLine ? unescapeIcsText(locationLine.value) : '',
         status: (statusLine && statusLine.value.toUpperCase() === 'CANCELLED') ? 'cancelled' : 'active',
-        description: descLine ? unescapeIcsText(descLine.value) : ''
+        description: descLine ? unescapeIcsText(descLine.value) : '',
+        // Imported files don't know about our calendars - land in the
+        // first one, same as any other calendar-unaware external source.
+        calendarId: mockCalendars[0].id
     };
 
     let id = nextEventId();
@@ -841,6 +890,198 @@ function closeSearchModal() {
     searchModalBackdrop.classList.remove('open');
 }
 
+// --- Multi-calendar: create/rename/recolor/delete, show/hide filtering ---
+
+function getCalendarById(id) {
+    return mockCalendars.find(function (c) { return c.id === id; });
+}
+
+function isCalendarVisible(calendarId) {
+    let cal = getCalendarById(calendarId);
+    return !cal || cal.visible;
+}
+
+// Uses FullCalendar's own per-event `display` property rather than CSS,
+// so a hidden calendar's events are properly excluded from FullCalendar's
+// own layout (month view's "+N more" count, row heights) instead of just
+// being painted over while still occupying space.
+function applyCalendarVisibility() {
+    calendar.getEvents().forEach(function (ev) {
+        ev.setProp('display', isCalendarVisible(ev.extendedProps.calendarId) ? 'auto' : 'none');
+    });
+}
+
+function applyCalendarColor(calendarId) {
+    let cal = getCalendarById(calendarId);
+    if (!cal) return;
+    calendar.getEvents().forEach(function (ev) {
+        if (ev.extendedProps.calendarId === calendarId) ev.setProp('color', cal.color);
+    });
+}
+
+function renderCalendarSelectOptions(selectedId) {
+    calendarSelectInput.innerHTML = '';
+    mockCalendars.forEach(function (cal) {
+        let option = document.createElement('option');
+        option.value = cal.id;
+        option.textContent = cal.name;
+        calendarSelectInput.appendChild(option);
+    });
+    calendarSelectInput.value = selectedId || mockCalendars[0].id;
+}
+
+function closeAllCalendarMenus() {
+    document.querySelectorAll('.calendar-menu.open').forEach(function (menu) { menu.classList.remove('open'); });
+}
+
+// The primary calendar's own Delete option isn't even rendered (see
+// renderCalendarList() below), so this check is a defensive backstop,
+// not the primary way that's enforced.
+function deleteCalendar(id) {
+    let cal = getCalendarById(id);
+    if (!cal || cal.primary) return;
+    openConfirmModal('Delete "' + cal.name + '"? All its events will be permanently deleted.', function () {
+        calendar.getEvents().forEach(function (ev) {
+            if (ev.extendedProps.calendarId === id) ev.remove();
+        });
+        mockCalendars = mockCalendars.filter(function (c) { return c.id !== id; });
+        renderCalendarList();
+    });
+}
+
+function renderCalendarList() {
+    calendarListEl.innerHTML = '';
+    mockCalendars.forEach(function (cal) {
+        let item = document.createElement('div');
+        item.className = 'calendar-list-item';
+
+        let checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = cal.visible;
+        checkbox.style.accentColor = cal.color;
+        checkbox.setAttribute('aria-label', 'Show ' + cal.name);
+        checkbox.addEventListener('change', function () {
+            cal.visible = checkbox.checked;
+            applyCalendarVisibility();
+        });
+
+        let name = document.createElement('span');
+        name.className = 'calendar-list-name';
+        name.textContent = cal.name;
+        name.title = cal.name;
+
+        item.appendChild(checkbox);
+        item.appendChild(name);
+
+        // Editing calendar metadata is a mutation, so gated on isWritable,
+        // same as Import - unlike the checkbox above, which is a purely
+        // local display preference and stays available read-only, same
+        // reasoning as Search.
+        if (isWritable) {
+            let menuButton = document.createElement('button');
+            menuButton.type = 'button';
+            menuButton.className = 'calendar-menu-button';
+            menuButton.setAttribute('aria-label', cal.name + ' calendar options');
+            menuButton.title = 'Options';
+            menuButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></svg>';
+
+            let menu = document.createElement('div');
+            menu.className = 'calendar-menu';
+            let editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg> Edit';
+            editBtn.addEventListener('click', function () {
+                closeAllCalendarMenus();
+                openCalendarModal('edit', cal);
+            });
+            menu.appendChild(editBtn);
+
+            // Google Calendar/Outlook/Apple Calendar all protect the
+            // primary calendar the same way: no Delete option offered
+            // for it at all, rather than offering it and then blocking
+            // the action after the fact.
+            if (!cal.primary) {
+                let deleteBtn = document.createElement('button');
+                deleteBtn.type = 'button';
+                deleteBtn.className = 'danger';
+                deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg> Delete';
+                deleteBtn.addEventListener('click', function () {
+                    closeAllCalendarMenus();
+                    deleteCalendar(cal.id);
+                });
+                menu.appendChild(deleteBtn);
+            }
+
+            menuButton.addEventListener('click', function (e) {
+                e.stopPropagation();
+                let wasOpen = menu.classList.contains('open');
+                closeAllCalendarMenus();
+                if (!wasOpen) menu.classList.add('open');
+            });
+
+            item.appendChild(menuButton);
+            item.appendChild(menu);
+        }
+
+        calendarListEl.appendChild(item);
+    });
+}
+
+let editingCalendarId = null;
+
+function renderColorSwatches(selectedColor) {
+    calendarColorSwatches.innerHTML = '';
+    CALENDAR_COLORS.forEach(function (color) {
+        let swatch = document.createElement('button');
+        swatch.type = 'button';
+        swatch.className = 'color-swatch' + (color === selectedColor ? ' selected' : '');
+        swatch.style.backgroundColor = color;
+        swatch.dataset.color = color;
+        swatch.setAttribute('aria-label', color);
+        // Matches Google Calendar's own color picker: a checkmark marks
+        // the selected swatch, not just a border - a border alone is
+        // easy to miss against some of these colors.
+        swatch.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5l10 -10"/></svg>';
+        swatch.addEventListener('click', function () {
+            calendarColorSwatches.querySelectorAll('.color-swatch').forEach(function (s) { s.classList.remove('selected'); });
+            swatch.classList.add('selected');
+        });
+        calendarColorSwatches.appendChild(swatch);
+    });
+}
+
+function openCalendarModal(mode, cal) {
+    editingCalendarId = mode === 'edit' ? cal.id : null;
+    calendarModalHeading.textContent = mode === 'edit' ? 'Edit calendar' : 'New calendar';
+    calendarNameInput.value = mode === 'edit' ? cal.name : '';
+    renderColorSwatches(mode === 'edit' ? cal.color : CALENDAR_COLORS[0]);
+    calendarDeleteButton.style.display = (mode === 'edit' && !cal.primary) ? '' : 'none';
+    calendarModalBackdrop.classList.add('open');
+    calendarNameInput.focus();
+}
+
+function closeCalendarModal() {
+    calendarModalBackdrop.classList.remove('open');
+    editingCalendarId = null;
+}
+
+// Generic confirm dialog - currently only used for deleting a calendar,
+// but not named/scoped to that specifically in case another destructive
+// action needs the same "are you sure?" pattern later, matching this
+// app's own visual style instead of the browser's native confirm().
+let pendingConfirmAction = null;
+
+function openConfirmModal(message, onConfirm) {
+    confirmModalMessage.textContent = message;
+    pendingConfirmAction = onConfirm;
+    confirmModalBackdrop.classList.add('open');
+}
+
+function closeConfirmModal() {
+    confirmModalBackdrop.classList.remove('open');
+    pendingConfirmAction = null;
+}
+
 function performScopedDelete(ev, scope) {
     if (scope === 'this' && ev.extendedProps.recur) {
         excludeOccurrenceFromMaster(ev);
@@ -889,6 +1130,7 @@ function openModal(mode, opts) {
         locationInput.value = ev.extendedProps.location || '';
         statusInput.value = ev.extendedProps.status || 'active';
         descriptionInput.value = ev.extendedProps.description || '';
+        renderCalendarSelectOptions(ev.extendedProps.calendarId);
     } else {
         let prefill = opts.prefill || {};
         titleInput.value = prefill.title || '';
@@ -903,6 +1145,7 @@ function openModal(mode, opts) {
         statusInput.value = prefill.status || 'active';
         descriptionInput.value = prefill.description || '';
         recur = null;
+        renderCalendarSelectOptions(prefill.calendarId);
     }
 
     allDayInput.checked = allDay;
@@ -1010,7 +1253,8 @@ popoverDuplicateButton.addEventListener('click', function () {
             title: ev.title,
             location: ev.extendedProps.location,
             status: ev.extendedProps.status,
-            description: ev.extendedProps.description
+            description: ev.extendedProps.description,
+            calendarId: ev.extendedProps.calendarId
         }
     });
 });
@@ -1031,6 +1275,7 @@ icsFileInput.addEventListener('change', function () {
     reader.onload = function () {
         let events = parseIcsFile(reader.result);
         events.forEach(function (data) { calendar.addEvent(data); });
+        applyCalendarVisibility();
         icsFileInput.value = '';
     };
     reader.readAsText(file);
@@ -1046,14 +1291,104 @@ searchModalBackdrop.addEventListener('click', function (e) {
     if (e.target === searchModalBackdrop) closeSearchModal();
 });
 
+// Below MOBILE_BREAKPOINT (matches calendar.css's own `@media (max-width:
+// 700px)`), the sidebar is an off-canvas drawer (`.open` + a dimming
+// backdrop); above it, it's a persistent column that just collapses to
+// zero width in place - same button, different meaning depending on
+// how much room there already is, matching how Google Calendar's own
+// desktop and mobile web sidebars each behave.
+let MOBILE_BREAKPOINT = 700;
+
+sidebarToggleButton.addEventListener('click', function () {
+    if (window.innerWidth <= MOBILE_BREAKPOINT) {
+        sidebar.classList.toggle('open');
+        sidebarBackdrop.classList.toggle('open');
+    } else {
+        sidebar.classList.toggle('collapsed');
+    }
+});
+
+sidebarBackdrop.addEventListener('click', function () {
+    sidebar.classList.remove('open');
+    sidebarBackdrop.classList.remove('open');
+});
+
+addCalendarButton.addEventListener('click', function () {
+    openCalendarModal('create', null);
+});
+
+calendarForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    let name = calendarNameInput.value.trim();
+    if (!name) return;
+    let selectedSwatch = calendarColorSwatches.querySelector('.color-swatch.selected');
+    let color = selectedSwatch ? selectedSwatch.dataset.color : CALENDAR_COLORS[0];
+    if (editingCalendarId) {
+        let cal = getCalendarById(editingCalendarId);
+        cal.name = name;
+        if (cal.color !== color) {
+            cal.color = color;
+            applyCalendarColor(cal.id);
+        }
+    } else {
+        mockCalendars.push({ id: nextEventId(), name: name, color: color, visible: true });
+    }
+    renderCalendarList();
+    closeCalendarModal();
+});
+
+calendarCancelButton.addEventListener('click', closeCalendarModal);
+
+calendarModalBackdrop.addEventListener('click', function (e) {
+    if (e.target === calendarModalBackdrop) closeCalendarModal();
+});
+
+calendarDeleteButton.addEventListener('click', function () {
+    if (!editingCalendarId) return;
+    let id = editingCalendarId;
+    closeCalendarModal();
+    deleteCalendar(id);
+});
+
+confirmOkButton.addEventListener('click', function () {
+    let action = pendingConfirmAction;
+    closeConfirmModal();
+    if (action) action();
+});
+
+confirmCancelButton.addEventListener('click', closeConfirmModal);
+
+confirmModalBackdrop.addEventListener('click', function (e) {
+    if (e.target === confirmModalBackdrop) closeConfirmModal();
+});
+
+// Closes an open calendar "..." menu on any click that isn't on one of
+// its own buttons or its trigger button - not exempting the menu's own
+// blank space, since the menu is tall enough to overlap the row below it
+// (a click aimed at that row's kebab button lands on the open menu
+// instead), and treating that as "inside the menu, do nothing" left the
+// menu looking stuck open. Capture phase, not bubble: eventClick calls
+// stopPropagation() (below), so a bubble-phase listener here never saw a
+// click on an event at all; capture runs before that stopPropagation()
+// happens.
+document.addEventListener('click', function (e) {
+    if (!e.target.closest('.calendar-menu button') && !e.target.closest('.calendar-menu-button')) {
+        closeAllCalendarMenus();
+    }
+}, true);
+
 // Clicking outside the popover closes it and still reaches whatever it
 // landed on - switching straight to a different event's popover in one
-// click, not requiring a separate click per event.
+// click. Capture phase, not bubble, same reason as the calendar-menu
+// closer above (just the other direction): a calendar kebab button's own
+// stopPropagation() otherwise leaves the popover stuck open. Capture
+// doesn't stop propagation itself, so eventClick still fires normally
+// afterward.
 document.addEventListener('click', function (e) {
     if (popover.classList.contains('open') && !popover.contains(e.target)) {
         hideEventPopover();
     }
-});
+}, true);
 
 // The one exception: day-grid `select` (clicking empty space to create a
 // new event) - opening the create form as a side effect of dismissing a
@@ -1071,8 +1406,10 @@ document.addEventListener('mousedown', function (e) {
 
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if (modalBackdrop.classList.contains('open')) closeModal();
+    if (confirmModalBackdrop.classList.contains('open')) closeConfirmModal();
+    else if (modalBackdrop.classList.contains('open')) closeModal();
     else if (scopeModalBackdrop.classList.contains('open')) closeScopeModal();
+    else if (calendarModalBackdrop.classList.contains('open')) closeCalendarModal();
     else if (popover.classList.contains('open')) hideEventPopover();
     else if (searchModalBackdrop.classList.contains('open')) closeSearchModal();
 });
@@ -1082,7 +1419,7 @@ form.addEventListener('submit', function (e) {
     let allDay = allDayInput.checked;
     let start = allDay ? startDateInput.value : new Date(startDateInput.value + 'T' + startTimeInput.value);
     let end = fromFormEnd(allDay);
-    let extra = { location: locationInput.value, status: statusInput.value, description: descriptionInput.value };
+    let extra = { location: locationInput.value, status: statusInput.value, description: descriptionInput.value, calendarId: calendarSelectInput.value };
     let recur = readRecurFromForm();
 
     if (editingEvent && editScope === 'this' && editingEvent.extendedProps.recur) {
@@ -1115,6 +1452,7 @@ form.addEventListener('submit', function (e) {
         calendar.addEvent(data);
     }
 
+    applyCalendarVisibility();
     closeModal();
 });
 
@@ -1130,6 +1468,8 @@ deleteButton.addEventListener('click', function () {
 // Search is read-only and stays available without write permission;
 // only Import (which adds data) is hidden.
 importButton.style.display = isWritable ? '' : 'none';
+addCalendarButton.style.display = isWritable ? '' : 'none';
+renderCalendarList();
 
 // eventClick fires on both clicks of a double-click, so the first
 // click's popover is deferred behind a short timer - a second click
@@ -1174,3 +1514,4 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     }
 });
 calendar.render();
+applyCalendarVisibility();

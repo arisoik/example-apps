@@ -12,18 +12,63 @@
   </head>
   <body>
 
-    <div id="utility-bar">
-      <button type="button" id="search-button" class="search-trigger" aria-label="Search events" title="Search events">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path d="M21 21l-6 -6"/></svg>
-        <span class="search-trigger-label">Search</span>
+    <div id="sidebar-backdrop"></div>
+
+    <aside id="sidebar">
+      <div id="calendar-list"></div>
+      <button type="button" id="add-calendar-button" class="sidebar-add-button">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l0 14"/><path d="M5 12l14 0"/></svg>
+        Add calendar
       </button>
-      <button type="button" id="import-button" class="popover-icon-btn" aria-label="Import .ics" title="Import .ics">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"/><path d="M7 9l5 -5l5 5"/><path d="M12 4l0 12"/></svg>
-      </button>
-      <input type="file" id="ics-file-input" accept=".ics,text/calendar" style="display:none"/>
+    </aside>
+
+    <div id="main-column">
+      <div id="utility-bar">
+        <button type="button" id="sidebar-toggle-button" class="popover-icon-btn" aria-label="Toggle calendar list" title="Toggle calendar list">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l16 0"/><path d="M4 12l16 0"/><path d="M4 18l16 0"/></svg>
+        </button>
+        <button type="button" id="search-button" class="search-trigger" aria-label="Search events" title="Search events">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path d="M21 21l-6 -6"/></svg>
+          <span class="search-trigger-label">Search</span>
+        </button>
+        <button type="button" id="import-button" class="popover-icon-btn" aria-label="Import .ics" title="Import .ics">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"/><path d="M7 9l5 -5l5 5"/><path d="M12 4l0 12"/></svg>
+        </button>
+        <input type="file" id="ics-file-input" accept=".ics,text/calendar" style="display:none"/>
+      </div>
+
+      <div id="calendar"></div>
     </div>
 
-    <div id="calendar"></div>
+    <div id="calendar-modal-backdrop" class="event-modal-backdrop">
+      <div class="event-modal calendar-modal">
+        <h2 id="calendar-modal-heading">New calendar</h2>
+        <form id="calendar-form">
+          <label for="calendar-name-input">Name</label>
+          <input type="text" id="calendar-name-input" required/>
+
+          <label>Color</label>
+          <div id="calendar-color-swatches" class="color-swatches"></div>
+
+          <div class="modal-actions">
+            <button type="button" id="calendar-delete" class="danger">Delete</button>
+            <button type="button" id="calendar-cancel">Cancel</button>
+            <button type="submit" id="calendar-save" class="primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="confirm-modal-backdrop" class="event-modal-backdrop">
+      <div class="event-modal confirm-modal">
+        <h2 id="confirm-modal-heading">Are you sure?</h2>
+        <p id="confirm-modal-message"></p>
+        <div class="modal-actions">
+          <button type="button" id="confirm-ok" class="danger">Delete</button>
+          <button type="button" id="confirm-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <div id="search-modal-backdrop" class="event-modal-backdrop search-modal-backdrop">
       <div class="event-modal search-modal">
@@ -41,6 +86,9 @@
         <form id="event-form">
           <label for="event-title">Title</label>
           <input type="text" id="event-title" required/>
+
+          <label for="event-calendar" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/calendar.svg" alt=""/>Calendar</label>
+          <select id="event-calendar"></select>
 
           <label for="event-location" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/map-pin.svg" alt=""/>Location</label>
           <input type="text" id="event-location"/>
