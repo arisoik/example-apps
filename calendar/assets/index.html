@@ -6,8 +6,8 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <meta name="google" value="notranslate"/>
     <link href="vendor/fullcalendar/dist/skeleton.css" rel="stylesheet"/>
-    <link href="vendor/fullcalendar/dist/themes/classic/theme.css" rel="stylesheet"/>
-    <link href="vendor/fullcalendar/dist/themes/classic/palette.css" rel="stylesheet"/>
+    <link href="vendor/fullcalendar/dist/themes/breezy/theme.css" rel="stylesheet"/>
+    <link href="vendor/fullcalendar/dist/themes/breezy/palettes/indigo.css" rel="stylesheet"/>
     <link href="calendar.css" rel="stylesheet"/>
   </head>
   <body>
@@ -93,13 +93,13 @@
           <label for="event-title">Title</label>
           <input type="text" id="event-title" required/>
 
-          <label for="event-calendar" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/calendar.svg" alt=""/>Calendar</label>
+          <label for="event-calendar" class="field-label"><svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M11 15h1"/><path d="M12 15v3"/></svg>Calendar</label>
           <select id="event-calendar"></select>
 
-          <label for="event-location" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/map-pin.svg" alt=""/>Location</label>
+          <label for="event-location" class="field-label"><svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/><path d="M17.657 16.657l-4.243 4.243a2 2 0 0 1 -2.827 0l-4.244 -4.243a8 8 0 1 1 11.314 0"/></svg>Location</label>
           <input type="text" id="event-location"/>
 
-          <label for="event-start-date" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/clock.svg" alt=""/>Start</label>
+          <label for="event-start-date" class="field-label"><svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M12 7v5l3 3"/></svg>Start</label>
           <div class="date-time-row">
             <input type="date" id="event-start-date" required/>
             <input type="time" id="event-start-time" required/>
@@ -117,7 +117,7 @@
           </div>
 
           <div id="event-repeat-section">
-            <label for="event-repeat-freq" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/repeat.svg" alt=""/>Repeat</label>
+            <label for="event-repeat-freq" class="field-label"><svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v-3a3 3 0 0 1 3 -3h13m-3 -3l3 3l-3 3"/><path d="M20 12v3a3 3 0 0 1 -3 3h-13m3 3l-3 -3l3 -3"/></svg>Repeat</label>
             <select id="event-repeat-freq">
               <option value="">Does not repeat</option>
               <option value="daily">Daily</option>
@@ -149,13 +149,13 @@
             </div>
           </div>
 
-          <label for="event-status" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/flag.svg" alt=""/>Status</label>
+          <label for="event-status" class="field-label"><svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5a5 5 0 0 1 7 0a5 5 0 0 0 7 0v9a5 5 0 0 1 -7 0a5 5 0 0 0 -7 0v-9"/><path d="M5 21v-7"/></svg>Status</label>
           <select id="event-status">
             <option value="active">Active</option>
             <option value="cancelled">Cancelled</option>
           </select>
 
-          <label for="event-description" class="field-label"><img class="field-icon" src="vendor/tabler-icons/outline/notes.svg" alt=""/>Description</label>
+          <label for="event-description" class="field-label"><svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -14"/><path d="M9 7l6 0"/><path d="M9 11l6 0"/><path d="M9 15l4 0"/></svg>Description</label>
           <textarea id="event-description"></textarea>
 
           <div class="modal-actions">
@@ -200,19 +200,19 @@
         </button>
       </div>
       <div class="popover-row" id="popover-time-row">
-        <img class="popover-icon" src="vendor/tabler-icons/outline/clock.svg" alt=""/>
+        <svg class="popover-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M12 7v5l3 3"/></svg>
         <span id="popover-time"></span>
       </div>
       <div class="popover-row" id="popover-repeat-row">
-        <img class="popover-icon" src="vendor/tabler-icons/outline/repeat.svg" alt=""/>
+        <svg class="popover-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v-3a3 3 0 0 1 3 -3h13m-3 -3l3 3l-3 3"/><path d="M20 12v3a3 3 0 0 1 -3 3h-13m3 3l-3 -3l3 -3"/></svg>
         <span id="popover-repeat"></span>
       </div>
       <div class="popover-row" id="popover-location-row">
-        <img class="popover-icon" src="vendor/tabler-icons/outline/map-pin.svg" alt=""/>
+        <svg class="popover-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/><path d="M17.657 16.657l-4.243 4.243a2 2 0 0 1 -2.827 0l-4.244 -4.243a8 8 0 1 1 11.314 0"/></svg>
         <span id="popover-location"></span>
       </div>
       <div class="popover-row" id="popover-description-row">
-        <img class="popover-icon" src="vendor/tabler-icons/outline/notes.svg" alt=""/>
+        <svg class="popover-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -14"/><path d="M9 7l6 0"/><path d="M9 11l6 0"/><path d="M9 15l4 0"/></svg>
         <span id="popover-description"></span>
       </div>
       <div class="popover-actions" id="popover-actions">
@@ -232,7 +232,7 @@
     </div>
 
     <script src="vendor/fullcalendar/dist/fullcalendar.global.js"></script>
-    <script src="vendor/fullcalendar/dist/themes/classic/global.js"></script>
+    <script src="vendor/fullcalendar/dist/themes/breezy/global.js"></script>
     <script src="vendor/fullcalendar/dist/locales-all/global.js"></script>
     <script src="vendor/rrule/dist/es5/rrule.min.js"></script>
     <script src="vendor/fullcalendar-rrule/global.js"></script>

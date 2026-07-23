@@ -1,3 +1,31 @@
+/* Dark mode reuses the vendored Breezy theme's own CSS custom properties
+   (`--fc-breezy-*`, defined on `:root` in `themes/breezy/palettes/indigo.css`
+   with light values and a `[data-color-scheme=dark]` override block) rather
+   than hand-rolling a separate dark palette here - the same `data-color-
+   scheme="dark"` attribute (set on <html> in calendar.js from Peergos's
+   `?theme=dark-mode` param) flips FullCalendar's own grid and every custom
+   surface below at once, and stays visually consistent with it for free.
+   `--danger` is the one addition, since Breezy has no semantic error color. */
+:root {
+  --danger: #b91c1c;
+}
+
+[data-color-scheme=dark] {
+  --danger: #f87171;
+  color-scheme: dark;
+
+  /* Overrides Breezy's own stock near-black surfaces with the actual
+     colors Peergos web-ui itself uses in dark mode (`--blue-800`/
+     `--blue-900` in web-ui's src/0_variables.css) - this app is embedded
+     inside Peergos, so matching its host's dark background (rather than
+     an unrelated, much darker theme default) is what actually looks
+     consistent, not a stylistic swap. Everything else (foreground/
+     border/hover overlays) stays Breezy's own dark values, which already
+     have enough contrast against this lighter background too. */
+  --fc-breezy-background: #2c3e50;
+  --fc-breezy-popover: #283744;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -8,6 +36,8 @@ html, body {
 body {
   display: flex;
   flex-direction: row;
+  background: var(--fc-breezy-background);
+  color: var(--fc-breezy-foreground);
 }
 
 #main-column {
@@ -22,7 +52,7 @@ body {
   flex: 0 0 240px;
   box-sizing: border-box;
   padding: 12px 8px;
-  border-right: 1px solid #e5e5e5;
+  border-right: 1px solid var(--fc-breezy-border);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -59,7 +89,7 @@ body {
 }
 
 .calendar-list-item:hover {
-  background: #f5f5f5;
+  background: var(--fc-breezy-faint);
 }
 
 .calendar-list-item input[type="checkbox"] {
@@ -89,7 +119,7 @@ body {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: #666;
+  color: var(--fc-breezy-secondary-icon);
   cursor: pointer;
   opacity: 0;
 }
@@ -100,7 +130,8 @@ body {
 }
 
 .calendar-menu-button:hover {
-  background: #e5e5e5;
+  background: var(--fc-breezy-strong);
+  color: var(--fc-breezy-secondary-icon-over);
 }
 
 .calendar-menu {
@@ -108,7 +139,7 @@ body {
   position: absolute;
   top: 100%;
   right: 4px;
-  background: #fff;
+  background: var(--fc-breezy-popover);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
   padding: 4px;
@@ -136,11 +167,11 @@ body {
 }
 
 .calendar-menu button:hover {
-  background: #f0f0f0;
+  background: var(--fc-breezy-muted);
 }
 
 .calendar-menu button.danger {
-  color: #b91c1c;
+  color: var(--danger);
 }
 
 .calendar-menu button svg {
@@ -149,7 +180,7 @@ body {
 
 .calendar-menu-version {
   padding: 8px 10px;
-  color: #888;
+  color: var(--fc-breezy-faint-foreground);
   font-size: .8em;
   white-space: nowrap;
 }
@@ -168,7 +199,7 @@ body {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #444;
+  color: var(--fc-breezy-foreground);
   font: inherit;
   font-size: .9em;
   cursor: pointer;
@@ -176,7 +207,7 @@ body {
 }
 
 .sidebar-add-button:hover {
-  background: #f5f5f5;
+  background: var(--fc-breezy-faint);
 }
 
 .color-swatches {
@@ -216,7 +247,7 @@ body {
     bottom: 0;
     width: 240px;
     z-index: 1100;
-    background: #fff;
+    background: var(--fc-breezy-background);
     box-shadow: 2px 0 12px rgba(0, 0, 0, .15);
     transform: translateX(-100%);
     transition: transform .2s ease;
@@ -265,27 +296,29 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   padding: 8px 14px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--fc-breezy-strong-border);
   border-right: none;
   border-radius: 20px 0 0 20px;
   font: inherit;
   outline: none;
   box-sizing: border-box;
+  background: var(--fc-breezy-background);
+  color: var(--fc-breezy-foreground);
 }
 
 #search-input:focus {
-  border-color: #1a73e8;
+  border-color: var(--fc-breezy-primary);
 }
 
 #search-clear-button {
   display: none;
   flex: 0 0 auto;
   align-items: center;
-  border: 1px solid #ccc;
+  border: 1px solid var(--fc-breezy-strong-border);
   border-left: none;
   border-right: none;
-  background: #fff;
-  color: #888;
+  background: var(--fc-breezy-background);
+  color: var(--fc-breezy-secondary-icon);
   cursor: pointer;
   padding: 0 4px;
 }
@@ -300,17 +333,17 @@ body {
   align-items: center;
   justify-content: center;
   width: 44px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--fc-breezy-strong-border);
   border-left: none;
   border-radius: 0 20px 20px 0;
-  background: #f5f5f5;
-  color: #555;
+  background: var(--fc-breezy-faint);
+  color: var(--fc-breezy-secondary-icon);
   cursor: pointer;
   padding: 0;
 }
 
 #search-button:hover {
-  background: #eee;
+  background: var(--fc-breezy-muted);
 }
 
 .search-results {
@@ -320,7 +353,7 @@ body {
   left: 0;
   right: 0;
   margin-top: 6px;
-  background: #fff;
+  background: var(--fc-breezy-popover);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
   padding: 6px;
@@ -350,7 +383,7 @@ body {
 }
 
 .search-result-item:hover {
-  background: #f0f0f0;
+  background: var(--fc-breezy-muted);
 }
 
 .search-result-title-row {
@@ -372,8 +405,7 @@ body {
 }
 
 .search-result-badge {
-  width: 14px;
-  height: 14px;
+  display: inline-flex;
   opacity: .55;
   flex: 0 0 auto;
 }
@@ -383,12 +415,12 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: .8em;
-  color: #666;
+  color: var(--fc-breezy-muted-foreground);
 }
 
 .search-empty {
   padding: 16px 10px;
-  color: #666;
+  color: var(--fc-breezy-muted-foreground);
   font-size: .9em;
   text-align: center;
 }
@@ -443,7 +475,7 @@ body {
 }
 
 .event-modal {
-  background: #fff;
+  background: var(--fc-breezy-popover);
   border-radius: 8px;
   width: 420px;
   max-width: 100%;
@@ -473,9 +505,8 @@ body {
 }
 
 .field-icon {
-  width: 18px;
-  height: 18px;
   opacity: .6;
+  flex: 0 0 auto;
 }
 
 .event-modal input[type="text"],
@@ -486,10 +517,11 @@ body {
   width: 100%;
   padding: 8px;
   box-sizing: border-box;
-  border: 1px solid #ccc;
+  border: 1px solid var(--fc-breezy-strong-border);
   border-radius: 4px;
   font: inherit;
-  background: #fff;
+  background: var(--fc-breezy-background);
+  color: var(--fc-breezy-foreground);
 }
 
 .event-modal .date-time-row {
@@ -526,7 +558,7 @@ body {
 .event-modal .repeat-details {
   margin-top: 8px;
   padding: 10px 12px;
-  border-left: 3px solid #e2e8f0;
+  border-left: 3px solid var(--fc-breezy-border);
 }
 
 .event-modal .repeat-details label {
@@ -562,7 +594,7 @@ body {
 
 .scope-modal .scope-subtitle {
   margin: 4px 0 0;
-  color: #666;
+  color: var(--fc-breezy-muted-foreground);
   font-size: .9em;
 }
 
@@ -595,22 +627,23 @@ body {
 .event-modal button {
   padding: 8px 16px;
   border-radius: 4px;
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--fc-breezy-strong-border);
+  background: var(--fc-breezy-faint);
+  color: var(--fc-breezy-foreground);
   cursor: pointer;
   font: inherit;
 }
 
 .event-modal button.primary {
-  background: #334155;
-  color: #fff;
-  border-color: #334155;
+  background: var(--fc-breezy-primary);
+  color: var(--fc-breezy-primary-foreground);
+  border-color: var(--fc-breezy-primary);
 }
 
 .event-modal button.danger {
-  background: #fff;
-  color: #b91c1c;
-  border-color: #b91c1c;
+  background: var(--fc-breezy-popover);
+  color: var(--danger);
+  border-color: var(--danger);
   margin-right: auto;
 }
 
@@ -630,7 +663,7 @@ body {
   position: fixed;
   width: 300px;
   max-width: calc(100vw - 16px);
-  background: #fff;
+  background: var(--fc-breezy-popover);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
   padding: 16px;
@@ -665,17 +698,18 @@ body {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: #555;
+  color: var(--fc-breezy-secondary-icon);
   cursor: pointer;
   flex: 0 0 auto;
 }
 
 .popover-icon-btn:hover {
-  background: #f0f0f0;
+  background: var(--fc-breezy-muted);
+  color: var(--fc-breezy-secondary-icon-over);
 }
 
 #popover-delete:hover {
-  color: #b91c1c;
+  color: var(--danger);
 }
 
 .popover-row {
@@ -684,12 +718,10 @@ body {
   gap: 12px;
   margin-top: 10px;
   font-size: .9em;
-  color: #333;
+  color: var(--fc-breezy-foreground);
 }
 
 .popover-icon {
-  width: 18px;
-  height: 18px;
   opacity: .6;
   margin-top: 1px;
   flex: 0 0 auto;
@@ -701,7 +733,7 @@ body {
   gap: 4px;
   margin-top: 14px;
   padding-top: 10px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--fc-breezy-border);
 }
 
 @media (max-width: 450px) {

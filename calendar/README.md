@@ -237,6 +237,59 @@ downstream - "switch straight to a different event's popover in one
 click" still works afterward, since capture doesn't stop propagation
 itself.
 
+**Dark mode** reads Peergos's own `?theme=` param (confirmed against
+book.peergos.org/features/apps.html: `dark-mode` or `''`) and sets
+`data-color-scheme="dark"` on `<html>` — the exact attribute the vendored
+Breezy theme's own `palettes/indigo.css` already switches on for its
+light/dark CSS custom properties. Rather than hand-rolling a second dark
+palette for this app's own sidebar/modals/popover/toolbar, `calendar.css`
+was rewritten to reference those same `--fc-breezy-*` variables throughout
+(`--fc-breezy-background`, `-foreground`, `-border`, `-popover`,
+`-primary`, `-secondary-icon`, etc.) instead of hardcoded hex colors — one
+attribute flip now re-themes FullCalendar's own grid and every custom
+surface at once, and they stay visually consistent with each other for
+free. The one addition is `--danger` (Breezy has no semantic error color),
+defined the same way Breezy defines its own tokens: light value on
+`:root`, dark override under `[data-color-scheme=dark]`. Native form
+controls (date/time pickers, checkboxes, scrollbars) pick up the same
+dark styling via a plain `color-scheme: dark` in that same block.
+This also closed a real, previously-flagged gap: six icons (`field-icon`/
+`popover-icon`, plus the search-result repeat badge) were still loaded via
+`<img src="...svg">` rather than inline `<svg>` like every other icon in
+this app, so they couldn't inherit `currentColor` and would have rendered
+solid black regardless of theme — inlined them the same way the rest of
+the app already does.
+
+Two follow-up refinements after first trying this live: Breezy's own
+stock dark background (`#111827`, near-black) read as too dark once
+actually seen embedded in Peergos, so `--fc-breezy-background`/`-popover`
+are overridden under `[data-color-scheme=dark]` to `#2c3e50`/`#283744` —
+Peergos web-ui's own `--blue-800`/`--blue-900` tokens
+(`src/0_variables.css`), not an arbitrary color choice, so this app's
+dark mode actually reads as part of the same host rather than a visibly
+different shade of "dark." Second: the six-color calendar palette
+(`CALENDAR_COLORS`) was picked for contrast against *white*, so those
+same hex values looked muddy against the new dark background — added an
+index-matched `CALENDAR_COLORS_DARK` (brighter/lighter per hue) and a
+`displayColor()` lookup used everywhere a calendar's color is actually
+*rendered* (events, sidebar checkboxes, swatch previews). `cal.color`
+itself is never touched — it always stays the light-mode identity value
+from `CALENDAR_COLORS`, since that's also the value matched against a
+swatch's `selected` state and the value persisted on save; only the
+pixels shown for it change per mode.
+
+Also added: ISO week numbers (`weekNumbers: true`, FullCalendar's own
+built-in option) down the right edge of the month/week grid; the Today
+button moved from after Prev/Next to between them (`prev,today,next`) so
+it reads as one grouped control; and `navLinks: true` so day numbers and
+week numbers are clickable, jumping to Day/Week view for that date -
+matching Google Calendar/Outlook, where this is standard and its absence
+was a real gap (previously the only way to zoom into a specific day was
+the header view-switcher, with no way to jump to it by date at all).
+Confirmed live: all five views (Year/Month/Week/Day/List), the native
+"+N more" day popover, and every custom modal/popover/dropdown in this
+app were checked in both light and dark mode - no missed spots.
+
 **Blocked on:** the `READ_CALENDAR`/`WRITE_CALENDAR` permissions below —
 not yet implemented on the `peergos` core side. Once they land, the mock
 event source in `calendar.js` gets swapped for real
@@ -311,7 +364,8 @@ against the shape that swap will need.
 - `.ics` import (bulk done, staged per-event confirmation still open) and
   export (single event done, see Status above; email an event still open)
 - Read-only mode, whole-calendar or per-event
-- Dark mode via the sandbox runtime's `?theme=` param
+- Dark mode via the sandbox runtime's `?theme=` param (done, see Status
+  above)
 - Timezone handling, guest/secret-link access
 - New: event search done (see Status above); duplicate-event action done
   (see Status above)
@@ -332,17 +386,25 @@ Source: the official GitHub release ZIP — not npm, not jsDelivr.
 https://github.com/fullcalendar/fullcalendar/releases/download/v7.0.1/fullcalendar-7.0.1.zip
 ```
 
-Only the `classic` theme is vendored (ZIP also ships `breezy`/`forma`/
-`monarch`, unused here):
+Only the `breezy` theme (indigo palette) is vendored. The ZIP ships five
+stock themes total — `classic`, `breezy`, `forma`, `monarch`, `pulse` — all
+MIT, no premium tier; picked breezy for the widest border-radius range
+(up to full pill shapes) and a more refined Tailwind-gray-based neutral
+scale than classic's flatter, single-font-weight look. All five use the
+same mechanism: a `global.js` (per-theme class-name generator, loaded as a
+`<script>`) plus `theme.css` and one `palettes/<color>.css` file per
+theme — no `themeSystem` config option needed, confirmed against
+https://fullcalendar.io/docs/initialize-globals. Swapping themes is a
+file-copy, not a code change.
 
 | Local path | ZIP path |
 |---|---|
 | `vendor/fullcalendar/dist/fullcalendar.global.js` | `dist/fullcalendar.global.js` |
 | `vendor/fullcalendar/dist/skeleton.css` | `dist/skeleton.css` |
 | `vendor/fullcalendar/dist/locales-all/global.js` | `dist/locales-all/global.js` |
-| `vendor/fullcalendar/dist/themes/classic/global.js` | `dist/themes/classic/global.js` |
-| `vendor/fullcalendar/dist/themes/classic/theme.css` | `dist/themes/classic/theme.css` |
-| `vendor/fullcalendar/dist/themes/classic/palette.css` | `dist/themes/classic/palette.css` |
+| `vendor/fullcalendar/dist/themes/breezy/global.js` | `dist/themes/breezy/global.js` |
+| `vendor/fullcalendar/dist/themes/breezy/theme.css` | `dist/themes/breezy/theme.css` |
+| `vendor/fullcalendar/dist/themes/breezy/palettes/indigo.css` | `dist/themes/breezy/palettes/indigo.css` |
 
 Docs: https://fullcalendar.io/docs/initialize-globals,
 https://fullcalendar.io/docs/locale.
@@ -424,24 +486,22 @@ gets ~3M npm downloads/week vs. Lucide's ~860K and Feather's ~200K
 https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/<icon>.svg
 ```
 
-Icons currently used: `clock` (time), `map-pin` (location), `repeat`,
-`flag` (status), `notes` (description), `x` (close), `pencil` (edit),
-`copy` (duplicate), `download` (export), `upload` (import), `trash`
-(delete). Tabler's SVGs already ship with `stroke="currentColor"`
-baked in, but that only matters once the markup is actually inline in the
-page — an `<img src="...svg">` renders the file in its own isolated
-document context, so `currentColor` there still resolves independently of
-the page, not to it. Static/informational icons (popover rows, form field
-labels) are plain `<img>` tags referencing the vendored file directly —
-simplest option, fine for the current single (light) theme. The three
-*interactive* icons (edit/delete/close, which need to inherit a button's
-text color for hover/danger states) are inlined directly in `index.html`,
-copy-pasted from the same vendored files, which is what actually lets
-`currentColor` pick up the button's color. **When dark mode gets built
-(open item, not started yet)**, revisit the `<img>`-based icons too, since
-those stay whatever color they were vendored as — either inline them the
-same way, or use a CSS `mask-image` + `background-color: currentColor`
-technique instead of duplicating markup for every icon.
+Icons currently used: `calendar`, `clock` (time), `map-pin` (location),
+`repeat`, `flag` (status), `notes` (description), `x` (close), `pencil`
+(edit), `copy` (duplicate), `download` (export), `upload` (import),
+`trash` (delete), `menu-2` (hamburger), `dots-vertical` (overflow/kebab
+menus), `check` (color-swatch selection), `plus` (add calendar). Tabler's
+SVGs ship with `stroke="currentColor"` baked in, but that only matters
+once the markup is actually inline in the page — an `<img src="...svg">`
+renders the file in its own isolated document context, so `currentColor`
+there resolves independently of the page, not to it. Every icon in this
+app is now inlined directly in `index.html` (or built via `.innerHTML` in
+`calendar.js` for dynamically-created ones, like the search-result repeat
+badge), copy-pasted from the vendored files — this used to be true only
+for the interactive icons that needed to inherit a button's color; the
+last holdouts (`field-icon`/`popover-icon`, both still `<img>`-based) got
+converted once dark mode actually needed them to, since an `<img>`-loaded
+icon can't repaint itself for a dark background at all.
 
 ### Updating to a newer release
 

@@ -107,11 +107,34 @@ function mockDate(dayOffset, hour, minute) {
 
 let gymStart = mockDate(0, 7, 0);
 
+let url = new URL(window.location.href);
+let filePath = url.searchParams.get('path');
+let isWritable = url.searchParams.get('isPathWritable') == 'true';
+let theme = url.searchParams.get('theme');
+let isDarkMode = theme === 'dark-mode';
+if (isDarkMode) document.documentElement.setAttribute('data-color-scheme', 'dark');
+
 // Fixed palette, not free-form color picking - matches Google Calendar's
 // own calendar-color picker (a small set of pre-chosen, legible colors)
 // rather than letting a user land on something unreadable against white
 // event text.
 let CALENDAR_COLORS = ['#3788d8', '#8e24aa', '#0b8043', '#e67c73', '#f4511e', '#616161'];
+
+// Index-matched to CALENDAR_COLORS - the same colors saturated/lightened
+// for legibility against a dark background, since colors picked to read
+// well on white (the swatch/checkbox identity, stored in `cal.color`)
+// tend to look muddy or low-contrast once the surrounding UI goes dark.
+// Only ever used for *display* (events, checkboxes, swatch previews);
+// `cal.color` itself always stays the light-mode identity value so
+// swatch-selection matching and saved data stay stable regardless of
+// which mode was active when a calendar was created or edited.
+let CALENDAR_COLORS_DARK = ['#60a5fa', '#c084fc', '#4ade80', '#fca5a5', '#fb923c', '#9ca3af'];
+
+function displayColor(hex) {
+    if (!isDarkMode) return hex;
+    let idx = CALENDAR_COLORS.indexOf(hex);
+    return idx >= 0 ? CALENDAR_COLORS_DARK[idx] : hex;
+}
 
 // `primary: true` marks the one calendar that can never be deleted -
 // matches Google Calendar/Outlook/Apple Calendar, which all protect your
@@ -129,7 +152,7 @@ let mockEvents = [
         start: mockDate(1, 10, 0),
         end: mockDate(1, 11, 0),
         allDay: false,
-        color: CALENDAR_COLORS[1],
+        color: displayColor(CALENDAR_COLORS[1]),
         extendedProps: { location: 'Meeting room 2', description: 'Weekly planning call', status: 'active', recur: null, calendarId: 'cal-work' }
     },
     {
@@ -138,7 +161,7 @@ let mockEvents = [
         start: mockDate(3),
         end: mockDate(6),
         allDay: true,
-        color: CALENDAR_COLORS[1],
+        color: displayColor(CALENDAR_COLORS[1]),
         extendedProps: { location: 'Lake house', description: '', status: 'active', recur: null, calendarId: 'cal-work' }
     },
     {
@@ -147,7 +170,7 @@ let mockEvents = [
         start: mockDate(-2, 9, 30),
         end: mockDate(-2, 10, 0),
         allDay: false,
-        color: CALENDAR_COLORS[0],
+        color: displayColor(CALENDAR_COLORS[0]),
         extendedProps: { location: '', description: '', status: 'cancelled', recur: null, calendarId: 'cal-personal' }
     },
     {
@@ -156,7 +179,7 @@ let mockEvents = [
         allDay: false,
         rrule: { freq: 'daily', interval: 1, dtstart: toDateInputValue(gymStart) + 'T' + toTimeInputValue(gymStart), count: 10 },
         duration: { minutes: 45 },
-        color: CALENDAR_COLORS[0],
+        color: displayColor(CALENDAR_COLORS[0]),
         extendedProps: {
             location: 'Downtown gym', description: '', status: 'active', calendarId: 'cal-personal',
             recur: {
@@ -166,11 +189,6 @@ let mockEvents = [
         }
     }
 ];
-
-let url = new URL(window.location.href);
-let filePath = url.searchParams.get('path');
-let isWritable = url.searchParams.get('isPathWritable') == 'true';
-let theme = url.searchParams.get('theme');
 
 let modalBackdrop = document.getElementById('event-modal-backdrop');
 let form = document.getElementById('event-form');
@@ -340,7 +358,7 @@ function extraPropsOf(ev) {
 
 function colorForCalendarId(calendarId) {
     let cal = getCalendarById(calendarId);
-    return cal ? cal.color : CALENDAR_COLORS[0];
+    return displayColor(cal ? cal.color : CALENDAR_COLORS[0]);
 }
 
 function buildRecurringEventPayload(id, title, allDay, extra, recur, durationMs) {
@@ -845,11 +863,10 @@ function renderSearchResults(query) {
         titleSpan.textContent = ev.title;
         titleRow.appendChild(titleSpan);
         if (ev.extendedProps.recur) {
-            let badge = document.createElement('img');
+            let badge = document.createElement('span');
             badge.className = 'search-result-badge';
-            badge.src = 'vendor/tabler-icons/outline/repeat.svg';
-            badge.alt = 'Recurring';
             badge.title = 'Recurring';
+            badge.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v-3a3 3 0 0 1 3 -3h13m-3 -3l3 3l-3 3"/><path d="M20 12v3a3 3 0 0 1 -3 3h-13m3 3l-3 -3l3 -3"/></svg>';
             titleRow.appendChild(badge);
         }
 
@@ -923,7 +940,7 @@ function applyCalendarColor(calendarId) {
     let cal = getCalendarById(calendarId);
     if (!cal) return;
     calendar.getEvents().forEach(function (ev) {
-        if (ev.extendedProps.calendarId === calendarId) ev.setProp('color', cal.color);
+        if (ev.extendedProps.calendarId === calendarId) ev.setProp('color', displayColor(cal.color));
     });
 }
 
@@ -966,7 +983,7 @@ function renderCalendarList() {
         let checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = cal.visible;
-        checkbox.style.accentColor = cal.color;
+        checkbox.style.accentColor = displayColor(cal.color);
         checkbox.setAttribute('aria-label', 'Show ' + cal.name);
         checkbox.addEventListener('change', function () {
             cal.visible = checkbox.checked;
@@ -1043,7 +1060,7 @@ function renderColorSwatches(selectedColor) {
         let swatch = document.createElement('button');
         swatch.type = 'button';
         swatch.className = 'color-swatch' + (color === selectedColor ? ' selected' : '');
-        swatch.style.backgroundColor = color;
+        swatch.style.backgroundColor = displayColor(color);
         swatch.dataset.color = color;
         swatch.setAttribute('aria-label', color);
         // Matches Google Calendar's own color picker: a checkmark marks
@@ -1521,12 +1538,14 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     locale: navigator.language.toLowerCase(),
     headerToolbar: {
-        left: 'prev,next today',
+        left: 'prev,today,next',
         center: 'title',
         right: 'multiMonthYear,dayGridMonth,timeGridWeek,timeGridDay,listWeek'
     },
     height: '100%',
     firstDay: 1,
+    weekNumbers: true,
+    navLinks: true,
     events: mockEvents,
     eventClass: function (info) {
         return info.event.extendedProps.status === 'cancelled' ? 'fc-event-cancelled' : '';
