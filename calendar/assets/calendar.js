@@ -118,7 +118,7 @@ if (isDarkMode) document.documentElement.setAttribute('data-color-scheme', 'dark
 // own calendar-color picker (a small set of pre-chosen, legible colors)
 // rather than letting a user land on something unreadable against white
 // event text.
-let CALENDAR_COLORS = ['#3788d8', '#8e24aa', '#0b8043', '#e67c73', '#f4511e', '#616161'];
+let CALENDAR_COLORS = ['#3788d8', '#8e24aa', '#0b8043', '#e67c73', '#f4511e', '#e53935'];
 
 // Index-matched to CALENDAR_COLORS - the same colors saturated/lightened
 // for legibility against a dark background, since colors picked to read
@@ -128,7 +128,7 @@ let CALENDAR_COLORS = ['#3788d8', '#8e24aa', '#0b8043', '#e67c73', '#f4511e', '#
 // `cal.color` itself always stays the light-mode identity value so
 // swatch-selection matching and saved data stay stable regardless of
 // which mode was active when a calendar was created or edited.
-let CALENDAR_COLORS_DARK = ['#60a5fa', '#c084fc', '#4ade80', '#fca5a5', '#fb923c', '#9ca3af'];
+let CALENDAR_COLORS_DARK = ['#60a5fa', '#c084fc', '#4ade80', '#fca5a5', '#fb923c', '#f87171'];
 
 function displayColor(hex) {
     if (!isDarkMode) return hex;
@@ -269,6 +269,9 @@ let confirmModalBackdrop = document.getElementById('confirm-modal-backdrop');
 let confirmModalMessage = document.getElementById('confirm-modal-message');
 let confirmCancelButton = document.getElementById('confirm-cancel');
 let confirmOkButton = document.getElementById('confirm-ok');
+let importSummaryModalBackdrop = document.getElementById('import-summary-modal-backdrop');
+let importSummaryMessage = document.getElementById('import-summary-message');
+let importSummaryOkButton = document.getElementById('import-summary-ok');
 
 let editingEvent = null;
 let editScope = 'all';
@@ -472,13 +475,50 @@ function recurToIcsExdateLine(recur, allDay) {
     return (allDay ? 'EXDATE;VALUE=DATE:' : 'EXDATE:') + values.join(',');
 }
 
+// Inverse of the `UID:<id>@peergos.org` export format below - lets a
+// re-imported file we exported ourselves resolve back to the same event
+// id, which is what makes duplicate detection on import possible at all.
+// An externally-sourced UID (any other shape) is used as-is; FullCalendar
+// ids are opaque strings, so there's nothing to unpack for those.
+let PEERGOS_UID_SUFFIX = '@peergos.org';
+
+function idFromIcsUid(uid) {
+    return uid.endsWith(PEERGOS_UID_SUFFIX) ? uid.slice(0, -PEERGOS_UID_SUFFIX.length) : uid;
+}
+
+// Only ids we minted ourselves (nextEventId()'s own "evt-<ts>-<rand>"
+// shape) get a Peergos UID - RFC 5545's UID is meant to be a stable
+// identity for that event across every system it passes through, not
+// something to rewrite just because it was imported here. Re-exporting a
+// foreign event (Google, Outlook, ...) keeps its original UID untouched,
+// so re-importing that file back into its source app is still recognized
+// as the same event rather than a new duplicate.
+function isNativeEventId(id) {
+    return /^evt-\d+-[a-z0-9]+$/.test(id);
+}
+
+// A recurring event with no occurrence in the currently rendered date
+// range has ev.start === null on its EventApi (same quirk documented for
+// getSearchableEvents() above) - duration can't be derived from start/end
+// in that case. Every recurring event this app creates always has a
+// `{ milliseconds: N }` duration (buildRecurringEventPayload never uses
+// years/months/days), so reading it straight off the internal event-store
+// def is exact, not an approximation.
+function recurringDurationMs(eventId) {
+    let defs = calendar.getCurrentData().eventStore.defs;
+    let key = Object.keys(defs).find(function (k) { return defs[k].publicId === eventId; });
+    let dur = key && defs[key].recurringDef && defs[key].recurringDef.duration;
+    return dur ? dur.milliseconds : 0;
+}
+
 function eventToIcsLines(ev) {
-    let lines = ['BEGIN:VEVENT', 'UID:' + ev.id + '@peergos-calendar', 'DTSTAMP:' + icsUtcNow()];
+    let uid = isNativeEventId(ev.id) ? ev.id + PEERGOS_UID_SUFFIX : ev.id;
+    let lines = ['BEGIN:VEVENT', 'UID:' + uid, 'DTSTAMP:' + icsUtcNow()];
     let recur = ev.extendedProps.recur;
 
     if (recur) {
         let dtstart = ev.allDay ? new Date(recur.dtstart + 'T00:00') : new Date(recur.dtstart);
-        let durationMs = (ev.end || ev.start).getTime() - ev.start.getTime();
+        let durationMs = ev.start ? (ev.end || ev.start).getTime() - ev.start.getTime() : recurringDurationMs(ev.id);
         lines.push(icsDtLine('DTSTART', dtstart, ev.allDay));
         lines.push(icsDtLine('DTEND', new Date(dtstart.getTime() + durationMs), ev.allDay));
         lines.push(recurToIcsRRuleLine(recur, ev.allDay));
@@ -497,20 +537,50 @@ function eventToIcsLines(ev) {
     return lines;
 }
 
-function exportEventAsIcs(ev) {
+function icsFileNameFor(name) {
+    return (name || 'calendar').replace(/[^a-z0-9-_]+/gi, '_') + '.ics';
+}
+
+function downloadIcsFile(filename, veventLines) {
     let lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Peergos//Calendar 0.0.1//EN', 'CALSCALE:GREGORIAN']
-        .concat(eventToIcsLines(ev))
+        .concat(veventLines)
         .concat(['END:VCALENDAR']);
     let text = lines.map(foldIcsLine).join('\r\n') + '\r\n';
     let blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
     let url = URL.createObjectURL(blob);
     let a = document.createElement('a');
     a.href = url;
-    a.download = (ev.title || 'event').replace(/[^a-z0-9-_]+/gi, '_') + '.ics';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+function exportEventAsIcs(ev) {
+    downloadIcsFile(icsFileNameFor(ev.title), eventToIcsLines(ev));
+}
+
+// Walks the event store's *defs* rather than calendar.getEvents(), same
+// reasoning as getSearchableEvents() above - a recurring series with no
+// occurrence in the currently rendered view still has a def, and would
+// otherwise vanish from the export entirely depending on which month
+// happens to be on screen when you click Export.
+function exportCalendarAsIcs(calendarId) {
+    let cal = getCalendarById(calendarId);
+    if (!cal) return;
+    let defs = calendar.getCurrentData().eventStore.defs;
+    let seen = {};
+    let veventLines = [];
+    Object.keys(defs).forEach(function (key) {
+        let publicId = defs[key].publicId;
+        if (!publicId || seen[publicId]) return;
+        seen[publicId] = true;
+        let ev = calendar.getEventById(publicId);
+        if (!ev || ev.extendedProps.calendarId !== calendarId) return;
+        veventLines = veventLines.concat(eventToIcsLines(ev));
+    });
+    downloadIcsFile(icsFileNameFor(cal.name), veventLines);
 }
 
 function unfoldIcsLines(text) {
@@ -629,14 +699,19 @@ function parseIcsVevent(rawLines) {
         calendarId: mockCalendars[0].id
     };
 
-    let id = nextEventId();
+    let uidLine = find('UID');
+    let id = uidLine ? idFromIcsUid(uidLine.value) : nextEventId();
     if (recur) return buildRecurringEventPayload(id, title, allDay, extra, recur, end.getTime() - start.getTime());
     return buildPlainEventPayload(id, title, allDay, start, end, extra);
 }
 
+// `failed` counts VEVENT blocks that didn't produce a usable event (e.g.
+// missing/unparseable DTSTART) - parseIcsVevent() returning null was
+// previously a silent drop with no way for the caller to report it.
 function parseIcsFile(text) {
     let lines = unfoldIcsLines(text);
     let events = [];
+    let failed = 0;
     let current = null;
     lines.forEach(function (line) {
         if (line === 'BEGIN:VEVENT') {
@@ -644,14 +719,14 @@ function parseIcsFile(text) {
         } else if (line === 'END:VEVENT') {
             if (current) {
                 let ev = parseIcsVevent(current);
-                if (ev) events.push(ev);
+                if (ev) events.push(ev); else failed++;
             }
             current = null;
         } else if (current) {
             current.push(line);
         }
     });
-    return events;
+    return { events: events, failed: failed };
 }
 
 // Shared by "delete this occurrence" and "edit this occurrence" (the
@@ -998,20 +1073,21 @@ function renderCalendarList() {
         item.appendChild(checkbox);
         item.appendChild(name);
 
-        // Editing calendar metadata is a mutation, so gated on isWritable,
-        // same as Import - unlike the checkbox above, which is a purely
-        // local display preference and stays available read-only, same
-        // reasoning as Search.
-        if (isWritable) {
-            let menuButton = document.createElement('button');
-            menuButton.type = 'button';
-            menuButton.className = 'calendar-menu-button';
-            menuButton.setAttribute('aria-label', cal.name + ' calendar options');
-            menuButton.title = 'Options';
-            menuButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></svg>';
+        // The menu itself is always shown - Export is read-only (same
+        // reasoning as Search staying available without write access),
+        // so it can't live inside an isWritable-only menu. Edit/Delete
+        // (real mutations) are added below only when isWritable.
+        let menuButton = document.createElement('button');
+        menuButton.type = 'button';
+        menuButton.className = 'calendar-menu-button';
+        menuButton.setAttribute('aria-label', cal.name + ' calendar options');
+        menuButton.title = 'Options';
+        menuButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></svg>';
 
-            let menu = document.createElement('div');
-            menu.className = 'calendar-menu';
+        let menu = document.createElement('div');
+        menu.className = 'calendar-menu';
+
+        if (isWritable) {
             let editBtn = document.createElement('button');
             editBtn.type = 'button';
             editBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg> Edit';
@@ -1020,33 +1096,42 @@ function renderCalendarList() {
                 openCalendarModal('edit', cal);
             });
             menu.appendChild(editBtn);
-
-            // Google Calendar/Outlook/Apple Calendar all protect the
-            // primary calendar the same way: no Delete option offered
-            // for it at all, rather than offering it and then blocking
-            // the action after the fact.
-            if (!cal.primary) {
-                let deleteBtn = document.createElement('button');
-                deleteBtn.type = 'button';
-                deleteBtn.className = 'danger';
-                deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg> Delete';
-                deleteBtn.addEventListener('click', function () {
-                    closeAllCalendarMenus();
-                    deleteCalendar(cal.id);
-                });
-                menu.appendChild(deleteBtn);
-            }
-
-            menuButton.addEventListener('click', function (e) {
-                e.stopPropagation();
-                let wasOpen = menu.classList.contains('open');
-                closeAllCalendarMenus();
-                if (!wasOpen) menu.classList.add('open');
-            });
-
-            item.appendChild(menuButton);
-            item.appendChild(menu);
         }
+
+        let exportBtn = document.createElement('button');
+        exportBtn.type = 'button';
+        exportBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"/><path d="M7 11l5 5l5 -5"/><path d="M12 4l0 12"/></svg> Export';
+        exportBtn.addEventListener('click', function () {
+            closeAllCalendarMenus();
+            exportCalendarAsIcs(cal.id);
+        });
+        menu.appendChild(exportBtn);
+
+        // Google Calendar/Outlook/Apple Calendar all protect the
+        // primary calendar the same way: no Delete option offered
+        // for it at all, rather than offering it and then blocking
+        // the action after the fact.
+        if (isWritable && !cal.primary) {
+            let deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'danger';
+            deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg> Delete';
+            deleteBtn.addEventListener('click', function () {
+                closeAllCalendarMenus();
+                deleteCalendar(cal.id);
+            });
+            menu.appendChild(deleteBtn);
+        }
+
+        menuButton.addEventListener('click', function (e) {
+            e.stopPropagation();
+            let wasOpen = menu.classList.contains('open');
+            closeAllCalendarMenus();
+            if (!wasOpen) menu.classList.add('open');
+        });
+
+        item.appendChild(menuButton);
+        item.appendChild(menu);
 
         calendarListEl.appendChild(item);
     });
@@ -1105,6 +1190,19 @@ function openConfirmModal(message, onConfirm) {
 function closeConfirmModal() {
     confirmModalBackdrop.classList.remove('open');
     pendingConfirmAction = null;
+}
+
+// Purely informational (no onConfirm/Cancel), so it gets its own modal
+// rather than reusing openConfirmModal() above - that one's OK button is
+// permanently styled/labeled for a destructive action, which doesn't fit
+// a post-import summary.
+function openImportSummaryModal(message) {
+    importSummaryMessage.textContent = message;
+    importSummaryModalBackdrop.classList.add('open');
+}
+
+function closeImportSummaryModal() {
+    importSummaryModalBackdrop.classList.remove('open');
 }
 
 function performScopedDelete(ev, scope) {
@@ -1300,15 +1398,53 @@ overflowImportButton.addEventListener('click', function () {
 
 overflowMenuVersion.textContent = 'FullCalendar v' + FullCalendar.version;
 
+// Skips (rather than overwrites) an event whose id already exists -
+// safest default when we can't know whether the existing copy has local
+// edits the re-imported file doesn't know about. Only catches exact id
+// matches, which only happens for a file this app itself exported
+// (idFromIcsUid() above) or a repeat import of the same external file;
+// two different external sources describing "the same" event with
+// different UIDs still import as separate events, same as real calendar
+// apps.
+function formatImportSummary(imported, duplicates, failed) {
+    if (imported === 0 && duplicates === 0 && failed === 0) return 'No events found in this file.';
+    let parts = [imported === 1 ? 'Imported 1 event.' : 'Imported ' + imported + ' events.'];
+    if (duplicates > 0) parts.push(duplicates === 1 ? '1 already existed and was skipped.' : duplicates + ' already existed and were skipped.');
+    if (failed > 0) parts.push(failed === 1 ? '1 could not be read and was skipped.' : failed + ' could not be read and were skipped.');
+    return parts.join(' ');
+}
+
 icsFileInput.addEventListener('change', function () {
     let file = icsFileInput.files[0];
     if (!file) return;
     let reader = new FileReader();
     reader.onload = function () {
-        let events = parseIcsFile(reader.result);
-        events.forEach(function (data) { calendar.addEvent(data); });
-        applyCalendarVisibility();
         icsFileInput.value = '';
+        // A wrong-file-type pick (e.g. a renamed .txt/.jpg) would otherwise
+        // read as "0 events" - the same message an empty-but-valid calendar
+        // export gives - which is misleading about what actually went
+        // wrong. VCALENDAR is the one thing every RFC5545 file has.
+        if (reader.result.indexOf('BEGIN:VCALENDAR') === -1) {
+            openImportSummaryModal("This doesn't look like a valid .ics calendar file.");
+            return;
+        }
+        let parsed = parseIcsFile(reader.result);
+        let imported = 0;
+        let duplicates = 0;
+        parsed.events.forEach(function (data) {
+            if (calendar.getEventById(data.id)) {
+                duplicates++;
+            } else {
+                calendar.addEvent(data);
+                imported++;
+            }
+        });
+        if (imported > 0) applyCalendarVisibility();
+        openImportSummaryModal(formatImportSummary(imported, duplicates, parsed.failed));
+    };
+    reader.onerror = function () {
+        icsFileInput.value = '';
+        openImportSummaryModal('Could not read that file.');
     };
     reader.readAsText(file);
 });
@@ -1410,6 +1546,12 @@ confirmModalBackdrop.addEventListener('click', function (e) {
     if (e.target === confirmModalBackdrop) closeConfirmModal();
 });
 
+importSummaryOkButton.addEventListener('click', closeImportSummaryModal);
+
+importSummaryModalBackdrop.addEventListener('click', function (e) {
+    if (e.target === importSummaryModalBackdrop) closeImportSummaryModal();
+});
+
 // Closes an open calendar "..." menu on any click outside its own
 // buttons/trigger and the overflow menu's inert version line. A
 // calendar-list menu's own blank space is deliberately NOT exempted,
@@ -1464,6 +1606,7 @@ document.addEventListener('mousedown', function (e) {
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (confirmModalBackdrop.classList.contains('open')) closeConfirmModal();
+    else if (importSummaryModalBackdrop.classList.contains('open')) closeImportSummaryModal();
     else if (modalBackdrop.classList.contains('open')) closeModal();
     else if (scopeModalBackdrop.classList.contains('open')) closeScopeModal();
     else if (calendarModalBackdrop.classList.contains('open')) closeCalendarModal();
@@ -1533,6 +1676,45 @@ renderCalendarList();
 // arriving before it fires cancels the popover and opens edit instead.
 let eventClickTimer = null;
 
+// Fixes Breezy's day-grid (Month/Year) event rows: no color indicator by
+// default (--fc-event-color is set correctly, confirmed via devtools,
+// but nothing in that render mode consumes it, unlike Week/Day and List
+// which both already work) and the time label right-aligned via
+// justify-content:space-between + order:1, rather than flush-left like
+// Classic. Idempotent and safe to call repeatedly on the same element -
+// re-run on every resize below, not just at mount, since Breezy's own
+// responsive logic rebuilds this content on resize (adding/removing the
+// time div depending on available width) without re-invoking
+// eventDidMount; a one-time fix at mount alone left dot/time/title order
+// scrambled after a couple of rotations.
+function fixDayGridEventLayout(el) {
+    if (el.dataset.eventAllDay === '1') return;
+    let wrapper = el.firstElementChild;
+    if (!wrapper) return;
+    wrapper.style.justifyContent = 'flex-start';
+    let existingDot = wrapper.querySelector('.fc-event-color-dot');
+    if (existingDot) existingDot.remove();
+    let divs = Array.prototype.filter.call(wrapper.children, function (c) { return c.tagName === 'DIV'; });
+    if (!divs.length) return;
+    let dot = document.createElement('span');
+    dot.className = 'fc-event-color-dot';
+    dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;flex:0 0 auto;order:0;background-color:' + el.style.getPropertyValue('--fc-event-color') + ';';
+    wrapper.insertBefore(dot, wrapper.firstChild);
+    let timeEl = divs.length > 1 ? divs[0] : null;
+    let titleEl = divs.length > 1 ? divs[1] : divs[0];
+    titleEl.style.order = '2';
+    if (timeEl) {
+        timeEl.style.order = '1';
+        // Space-based, not a fixed width cutoff: keep dot+time+title in
+        // that order whenever they actually fit the cell (matching the
+        // desktop/web layout), and only drop the time label if they'd
+        // overflow - so rotating a phone to landscape, or any width with
+        // enough room, shows it again instead of it staying hidden below
+        // some hardcoded breakpoint.
+        timeEl.style.display = wrapper.scrollWidth > wrapper.clientWidth ? 'none' : '';
+    }
+}
+
 let calendarEl = document.getElementById('calendar');
 let calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
@@ -1546,12 +1728,17 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     firstDay: 1,
     weekNumbers: true,
     navLinks: true,
+    nowIndicator: true,
     events: mockEvents,
     eventClass: function (info) {
         return info.event.extendedProps.status === 'cancelled' ? 'fc-event-cancelled' : '';
     },
     eventDidMount: function (info) {
         info.el.dataset.searchEventId = info.event.id;
+        info.el.dataset.eventAllDay = info.event.allDay ? '1' : '0';
+        if (info.view.type === 'dayGridMonth' || info.view.type === 'multiMonthYear') {
+            fixDayGridEventLayout(info.el);
+        }
     },
     selectable: isWritable,
     select: function (info) {
@@ -1574,3 +1761,19 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
 });
 calendar.render();
 applyCalendarVisibility();
+
+// Re-applies fixDayGridEventLayout() to every rendered day-grid event on
+// resize/rotation, not just at mount - see that function's own comment
+// for why a one-time fix isn't enough. Debounced since resize (and
+// especially orientation change, which fires a burst of them) can fire
+// many times in quick succession.
+let dayGridLayoutFixTimer = null;
+window.addEventListener('resize', function () {
+    clearTimeout(dayGridLayoutFixTimer);
+    dayGridLayoutFixTimer = setTimeout(function () {
+        if (calendar.view.type !== 'dayGridMonth' && calendar.view.type !== 'multiMonthYear') return;
+        document.querySelectorAll('[data-search-event-id]').forEach(function (el) {
+            fixDayGridEventLayout(el);
+        });
+    }, 150);
+});
