@@ -34,58 +34,110 @@ function computeDurationMs(start, end, allDay) {
     return endMs - startMs;
 }
 
-// Only exact for simple FREQ+INTERVAL series (no BYDAY/BYMONTHDAY), which
-// matches everything the Repeat UI can currently produce.
-function stepOccurrence(date, freq, interval, direction) {
-    let d = new Date(date);
-    let n = interval * direction;
-    if (freq === 'daily') d.setDate(d.getDate() + n);
-    else if (freq === 'weekly') d.setDate(d.getDate() + n * 7);
-    else if (freq === 'monthly') d.setMonth(d.getMonth() + n);
-    else if (freq === 'yearly') d.setFullYear(d.getFullYear() + n);
-    return d;
+// rrule.js reads Date fields via UTC getters regardless of the actual
+// local timezone (the same bug documented for @fullcalendar/rrule in the
+// README's Vendored dependencies section - found there, fixed there by
+// always handing the *plugin* bare date strings instead of Date objects).
+// The helpers below call the rrule library directly, bypassing that
+// plugin's own translation layer, so they need the equivalent fix
+// themselves: build/read dates via their UTC fields instead of their
+// local ones, so rrule.js's UTC getters see the intended wall-clock
+// values regardless of the browser's own timezone.
+function toFakeUtc(localDate) {
+    return new Date(Date.UTC(localDate.getFullYear(), localDate.getMonth(), localDate.getDate(), localDate.getHours(), localDate.getMinutes(), localDate.getSeconds()));
 }
 
-function previousOccurrenceBoundary(date, freq, interval) {
-    return stepOccurrence(date, freq, interval, -1);
+function fromFakeUtc(fakeUtcDate) {
+    return new Date(fakeUtcDate.getUTCFullYear(), fakeUtcDate.getUTCMonth(), fakeUtcDate.getUTCDate(), fakeUtcDate.getUTCHours(), fakeUtcDate.getUTCMinutes(), fakeUtcDate.getUTCSeconds());
 }
 
-function countOccurrencesBefore(dtstart, freq, interval, targetDate) {
-    let cursor = dtstart;
-    let count = 0;
-    while (cursor.getTime() < targetDate.getTime()) {
-        cursor = stepOccurrence(cursor, freq, interval, 1);
-        count++;
-    }
-    return count;
+let WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
+function weekdayCodeOf(date) {
+    return WEEKDAY_CODES[date.getDay()];
+}
+
+// 1-5 for "the nth <weekday> of this month", or -1 if this date is in
+// the final 7 days of the month ("the last <weekday>") - matches Google
+// Calendar's own monthly-repeat convention.
+function nthWeekdayOfMonth(date) {
+    let day = date.getDate();
+    let daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    return (day + 7 > daysInMonth) ? -1 : Math.ceil(day / 7);
+}
+
+let ORDINAL_LABELS = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th', '-1': 'last' };
+let WEEKDAY_LABELS = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
+
+// recur.byday holds RRULE-text-style day codes - plain ('MO') for a
+// weekly series repeating on that weekday, ordinal-prefixed ('2TU',
+// '-1FR') for "the nth weekday of the month". Same array shape is reused
+// for both ICS export (BYDAY=MO,WE,FR joins directly) and here, where
+// each code becomes an actual rrule.js Weekday instance (not a plain
+// string) - only RRule's own class exposes a `.nth()` method for the
+// ordinal case, and passing an instance through works for the plain case
+// too, so there's one code path instead of two.
+function rruleByweekdayFromByday(byday) {
+    return byday.map(function (code) {
+        let m = code.match(/^(-?\d+)?(SU|MO|TU|WE|TH|FR|SA)$/);
+        if (!m) return null;
+        let day = rrule.RRule[m[2]];
+        return m[1] ? day.nth(parseInt(m[1], 10)) : day;
+    }).filter(Boolean);
+}
+
+function rruleOptionsFor(recur, allDay) {
+    let dtstart = allDay ? new Date(recur.dtstart + 'T00:00') : new Date(recur.dtstart);
+    let options = { freq: rrule.RRule[recur.freq.toUpperCase()], interval: recur.interval, dtstart: toFakeUtc(dtstart) };
+    if (recur.byday && recur.byday.length) options.byweekday = rruleByweekdayFromByday(recur.byday);
+    return options;
+}
+
+// The occurrence immediately before `date` (exclusive), ignoring
+// count/until/exdates - used only to find a truncation boundary for
+// "this and following" splits, where the original series' own bounds
+// don't matter (a fresh boundary is being computed specifically to
+// replace them). Returns null if `date` is the series' first occurrence
+// (nothing comes before it) - the caller uses that to remove the
+// original series outright instead of leaving a degenerate rule.
+function previousOccurrenceBoundary(recur, allDay, date) {
+    let rr = new rrule.RRule(rruleOptionsFor(recur, allDay));
+    let result = rr.before(toFakeUtc(date), false);
+    return result ? fromFakeUtc(result) : null;
+}
+
+// How many occurrences of the base pattern (ignoring count/until/exdates,
+// same reasoning as previousOccurrenceBoundary) fall before targetDate -
+// used only to shrink a remaining COUNT when splitting a series.
+function countOccurrencesBefore(recur, allDay, targetDate) {
+    let rr = new rrule.RRule(rruleOptionsFor(recur, allDay));
+    let fakeTarget = toFakeUtc(targetDate).getTime();
+    return rr.all(function (dt) { return dt.getTime() < fakeTarget; }).length;
+}
+
+function buildRRuleSet(recur, allDay) {
+    let options = rruleOptionsFor(recur, allDay);
+    if (recur.end === 'until' && recur.until) options.until = toFakeUtc(new Date(formatUntil(recur.until, recur.dtstart, allDay)));
+    if (recur.end === 'count' && recur.count) options.count = recur.count;
+    let set = new rrule.RRuleSet();
+    set.rrule(new rrule.RRule(options));
+    (recur.exdates || []).forEach(function (exStr) {
+        set.exdate(toFakeUtc(allDay ? new Date(exStr + 'T00:00') : new Date(exStr)));
+    });
+    return set;
 }
 
 // Nearest occurrence to referenceDate, clamped to count/until and nudged
-// off any exdate. Compares against the start of referenceDate's day, not
-// its exact time - otherwise a daily event's occurrence for today looks
-// "already past" once its time-of-day has elapsed, and this skips ahead
-// to tomorrow instead of the occurrence actually shown in the grid today.
+// off any exdate (all handled natively by RRuleSet). Compares against the
+// start of referenceDate's day, not its exact time - otherwise a daily
+// event's occurrence for today looks "already past" once its time-of-day
+// has elapsed, and this skips ahead to tomorrow instead of the occurrence
+// actually shown in the grid today.
 function nearestRecurOccurrenceDate(recur, allDay, referenceDate) {
-    let dtstart = new Date(recur.dtstart);
-    let maxIndex = (recur.end === 'count' && recur.count) ? recur.count - 1 : Infinity;
-    let dayStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
-    let index = countOccurrencesBefore(dtstart, recur.freq, recur.interval, dayStart);
-    if (recur.end === 'until' && recur.until) {
-        let untilDate = new Date(formatUntil(recur.until, recur.dtstart, allDay));
-        while (index > 0 && stepOccurrence(dtstart, recur.freq, recur.interval, index).getTime() > untilDate.getTime()) index--;
-    }
-    index = Math.max(0, Math.min(index, maxIndex));
-    let occurrenceStr = function (idx) {
-        let d = stepOccurrence(dtstart, recur.freq, recur.interval, idx);
-        return allDay ? toDateInputValue(d) : (toDateInputValue(d) + 'T' + toTimeInputValue(d));
-    };
-    let exdates = recur.exdates || [];
-    let guard = 0;
-    while (exdates.indexOf(occurrenceStr(index)) !== -1 && guard < 1000) {
-        index = index < maxIndex ? index + 1 : index - 1;
-        guard++;
-    }
-    return stepOccurrence(dtstart, recur.freq, recur.interval, index);
+    let dayStart = toFakeUtc(new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate()));
+    let set = buildRRuleSet(recur, allDay);
+    let result = set.after(dayStart, true) || set.before(dayStart, true);
+    return result ? fromFakeUtc(result) : (allDay ? new Date(recur.dtstart + 'T00:00') : new Date(recur.dtstart));
 }
 
 // RFC5545 requires UNTIL's precision to match DTSTART's - a date-only
@@ -209,6 +261,9 @@ let repeatEndInput = document.getElementById('event-repeat-end');
 let repeatUntilInput = document.getElementById('event-repeat-until');
 let repeatCountRow = document.getElementById('event-repeat-count-row');
 let repeatCountInput = document.getElementById('event-repeat-count');
+let repeatWeekdayRow = document.getElementById('event-repeat-weekday-row');
+let weekdayToggleButtons = Array.prototype.slice.call(document.querySelectorAll('.weekday-toggle'));
+let repeatMonthlyModeInput = document.getElementById('event-repeat-monthly-mode');
 let statusInput = document.getElementById('event-status');
 let descriptionInput = document.getElementById('event-description');
 let deleteButton = document.getElementById('event-delete');
@@ -218,8 +273,8 @@ let modalHeading = document.getElementById('event-modal-heading');
 let editableFields = [
     titleInput, calendarSelectInput, allDayInput, startDateInput, startTimeInput, endDateInput, endTimeInput,
     locationInput, repeatFreqInput, repeatIntervalInput, repeatEndInput, repeatUntilInput,
-    repeatCountInput, statusInput, descriptionInput
-];
+    repeatCountInput, statusInput, descriptionInput, repeatMonthlyModeInput
+].concat(weekdayToggleButtons);
 
 let scopeModalBackdrop = document.getElementById('scope-modal-backdrop');
 let scopeSubtitle = document.getElementById('scope-subtitle');
@@ -241,6 +296,7 @@ let popoverCloseButton = document.getElementById('popover-close');
 let popoverEditButton = document.getElementById('popover-edit');
 let popoverDuplicateButton = document.getElementById('popover-duplicate');
 let popoverExportButton = document.getElementById('popover-export');
+let popoverEmailButton = document.getElementById('popover-email');
 let popoverDeleteButton = document.getElementById('popover-delete');
 let icsFileInput = document.getElementById('ics-file-input');
 let overflowMenuButton = document.getElementById('overflow-menu-button');
@@ -288,6 +344,30 @@ function setInputMode(allDay) {
 
 let intervalUnitLabels = { daily: 'day(s)', weekly: 'week(s)', monthly: 'month(s)', yearly: 'year(s)' };
 
+function selectedWeekdays() {
+    return weekdayToggleButtons.filter(function (b) { return b.classList.contains('selected'); }).map(function (b) { return b.dataset.day; });
+}
+
+function setSelectedWeekdays(codes) {
+    weekdayToggleButtons.forEach(function (b) { b.classList.toggle('selected', codes.indexOf(b.dataset.day) !== -1); });
+}
+
+function formStartDate() {
+    return new Date(startDateInput.value + 'T00:00');
+}
+
+// "Monthly on day 15" / "Monthly on the 3rd Tuesday" - option text is
+// computed from the form's own start date (not fixed strings), matching
+// Google Calendar's own monthly-repeat picker.
+function updateMonthlyModeLabels() {
+    let start = formStartDate();
+    let dayOfMonthOpt = repeatMonthlyModeInput.querySelector('option[value="dayOfMonth"]');
+    let nthWeekdayOpt = repeatMonthlyModeInput.querySelector('option[value="nthWeekday"]');
+    dayOfMonthOpt.textContent = 'Monthly on day ' + start.getDate();
+    let n = nthWeekdayOfMonth(start);
+    nthWeekdayOpt.textContent = 'Monthly on the ' + ORDINAL_LABELS[n] + ' ' + WEEKDAY_LABELS[weekdayCodeOf(start)];
+}
+
 function updateRepeatVisibility() {
     let freq = repeatFreqInput.value;
     let repeating = !!freq;
@@ -296,6 +376,15 @@ function updateRepeatVisibility() {
     let endMode = repeatEndInput.value;
     repeatUntilInput.style.display = (repeating && endMode === 'until') ? '' : 'none';
     repeatCountRow.style.display = (repeating && endMode === 'count') ? '' : 'none';
+    repeatWeekdayRow.style.display = (freq === 'weekly') ? '' : 'none';
+    repeatMonthlyModeInput.style.display = (freq === 'monthly') ? '' : 'none';
+    // Nothing checked yet (a fresh event, or freq just switched to
+    // weekly) defaults to the form's own start-date weekday, matching
+    // Google Calendar's own weekly-repeat picker - editing an existing
+    // weekly series already has real selections by this point (set in
+    // populateRecurForm before it calls this), so this is a no-op there.
+    if (freq === 'weekly' && !selectedWeekdays().length) setSelectedWeekdays([weekdayCodeOf(formStartDate())]);
+    if (freq === 'monthly') updateMonthlyModeLabels();
 }
 
 function populateRecurForm(recur) {
@@ -304,6 +393,9 @@ function populateRecurForm(recur) {
     repeatEndInput.value = recur ? recur.end : 'never';
     repeatUntilInput.value = (recur && recur.until) ? recur.until : '';
     repeatCountInput.value = (recur && recur.count) ? recur.count : 10;
+    let byday = (recur && recur.byday) || [];
+    setSelectedWeekdays(recur && recur.freq === 'weekly' ? byday : []);
+    repeatMonthlyModeInput.value = (recur && recur.freq === 'monthly' && byday.length) ? 'nthWeekday' : 'dayOfMonth';
     updateRepeatVisibility();
 }
 
@@ -311,7 +403,7 @@ function readRecurFromForm() {
     let freq = repeatFreqInput.value;
     if (!freq) return null;
     let end = repeatEndInput.value;
-    return {
+    let recur = {
         freq: freq,
         interval: parseInt(repeatIntervalInput.value, 10) || 1,
         end: end,
@@ -319,6 +411,14 @@ function readRecurFromForm() {
         count: end === 'count' ? (parseInt(repeatCountInput.value, 10) || 1) : null,
         exdates: []
     };
+    if (freq === 'weekly') {
+        let days = selectedWeekdays();
+        recur.byday = days.length ? days : [weekdayCodeOf(formStartDate())];
+    } else if (freq === 'monthly' && repeatMonthlyModeInput.value === 'nthWeekday') {
+        let start = formStartDate();
+        recur.byday = [nthWeekdayOfMonth(start) + weekdayCodeOf(start)];
+    }
+    return recur;
 }
 
 function nextEventId() {
@@ -347,8 +447,7 @@ function seriesFormRange(ev, recur, allDay) {
 function adjustRecurForFollowing(ev, masterRecur, allDay) {
     let recur = Object.assign({}, masterRecur);
     if (recur.end === 'count' && recur.count) {
-        let dtstart = allDay ? new Date(masterRecur.dtstart + 'T00:00') : new Date(masterRecur.dtstart);
-        let consumed = countOccurrencesBefore(dtstart, masterRecur.freq, masterRecur.interval, ev.start);
+        let consumed = countOccurrencesBefore(masterRecur, allDay, ev.start);
         recur.count = Math.max(1, masterRecur.count - consumed);
     }
     recur.exdates = [];
@@ -368,6 +467,7 @@ function buildRecurringEventPayload(id, title, allDay, extra, recur, durationMs)
     let rrule = { freq: recur.freq, interval: recur.interval, dtstart: recur.dtstart };
     if (recur.end === 'until' && recur.until) rrule.until = formatUntil(recur.until, recur.dtstart, allDay);
     if (recur.end === 'count' && recur.count) rrule.count = recur.count;
+    if (recur.byday && recur.byday.length) rrule.byweekday = rruleByweekdayFromByday(recur.byday);
     let color = colorForCalendarId(extra.calendarId);
     let data = {
         id: id,
@@ -461,6 +561,10 @@ function recurToIcsRRuleLine(recur, allDay) {
     let freqMap = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
     let parts = ['FREQ=' + freqMap[recur.freq]];
     if (recur.interval > 1) parts.push('INTERVAL=' + recur.interval);
+    // recur.byday is already RRULE-text shape (plain 'MO' or ordinal
+    // '2TU'/'-1FR') - see rruleByweekdayFromByday()'s own comment - so it
+    // joins directly, no translation needed here.
+    if (recur.byday && recur.byday.length) parts.push('BYDAY=' + recur.byday.join(','));
     if (recur.end === 'count' && recur.count) {
         parts.push('COUNT=' + recur.count);
     } else if (recur.end === 'until' && recur.until) {
@@ -561,6 +665,24 @@ function exportEventAsIcs(ev) {
     downloadIcsFile(icsFileNameFor(ev.title), eventToIcsLines(ev));
 }
 
+// mailto: (RFC 6068) can only prefill subject/body text, never an
+// attachment - so this sends a plain-text summary rather than the .ics
+// file itself, reusing the same formatting the popover already shows.
+function emailEventBody(ev) {
+    let lines = [formatPopoverTime(ev)];
+    if (ev.extendedProps.recur) lines.push(describeRecur(ev.extendedProps.recur));
+    if (ev.extendedProps.location) lines.push(ev.extendedProps.location);
+    if (ev.extendedProps.description) lines.push('', ev.extendedProps.description);
+    return lines.join('\n');
+}
+
+function emailEventAsMailto(ev) {
+    let url = 'mailto:?subject=' + encodeURIComponent(ev.title) + '&body=' + encodeURIComponent(emailEventBody(ev));
+    let a = document.createElement('a');
+    a.href = url;
+    a.click();
+}
+
 // Walks the event store's *defs* rather than calendar.getEvents(), same
 // reasoning as getSearchableEvents() above - a recurring series with no
 // occurrence in the currently rendered view still has a def, and would
@@ -635,10 +757,30 @@ function parseIcsRRuleValue(value) {
     });
     let freq = freqMap[props.FREQ];
     if (!freq) return null; // HOURLY/MINUTELY/SECONDLY - not in our UI's scope
-    if (props.BYDAY || props.BYMONTHDAY || props.BYMONTH || props.BYYEARDAY || props.BYWEEKNO || props.BYSETPOS) {
-        console.warn('Imported RRULE uses BY* parts not supported by this app\'s UI - simplified to plain ' + freq + ' recurrence: ' + value);
-    }
+
     let recur = { freq: freq, interval: props.INTERVAL ? parseInt(props.INTERVAL, 10) : 1, end: 'never', until: null, count: null, exdates: [] };
+
+    // Two BYDAY shapes match what this app's UI can express: any number
+    // of plain weekday codes on a WEEKLY series ("every Mon/Wed/Fri"), or
+    // exactly one ordinal-prefixed code on a MONTHLY series ("the 2nd
+    // Tuesday"). Anything else - BYMONTHDAY/BYMONTH/BYYEARDAY/BYWEEKNO/
+    // BYSETPOS, mixed/multiple ordinals, BYDAY on a DAILY/YEARLY series -
+    // isn't representable by the UI, so it's dropped with a warning
+    // rather than silently discarded.
+    let codes = props.BYDAY ? props.BYDAY.split(',') : [];
+    let isPlainCode = function (c) { return /^(SU|MO|TU|WE|TH|FR|SA)$/.test(c); };
+    let isOrdinalCode = function (c) { return /^-?\d+(SU|MO|TU|WE|TH|FR|SA)$/.test(c); };
+    let bydaySupported =
+        (freq === 'weekly' && codes.length && codes.every(isPlainCode)) ||
+        (freq === 'monthly' && codes.length === 1 && isOrdinalCode(codes[0]));
+    let hasOtherByParts = props.BYMONTHDAY || props.BYMONTH || props.BYYEARDAY || props.BYWEEKNO || props.BYSETPOS;
+
+    if ((props.BYDAY && !bydaySupported) || hasOtherByParts) {
+        console.warn('Imported RRULE uses BY* parts not supported by this app\'s UI - simplified to plain ' + freq + ' recurrence: ' + value);
+    } else if (bydaySupported) {
+        recur.byday = codes;
+    }
+
     if (props.COUNT) {
         recur.end = 'count';
         recur.count = parseInt(props.COUNT, 10);
@@ -749,9 +891,8 @@ function excludeOccurrenceFromMaster(master) {
 // rather than left as a degenerate until-before-dtstart rule.
 function truncateMasterSeries(master) {
     let masterRecur = Object.assign({}, master.extendedProps.recur);
-    let dtstart = master.allDay ? new Date(masterRecur.dtstart + 'T00:00') : new Date(masterRecur.dtstart);
-    let untilBoundary = previousOccurrenceBoundary(master.start, masterRecur.freq, masterRecur.interval);
-    if (untilBoundary.getTime() < dtstart.getTime()) {
+    let untilBoundary = previousOccurrenceBoundary(masterRecur, master.allDay, master.start);
+    if (!untilBoundary) {
         master.remove();
         return;
     }
@@ -777,7 +918,7 @@ function describeRecur(recur) {
 }
 
 function formatPopoverTime(ev) {
-    let dateFmt = new Intl.DateTimeFormat(navigator.language, { weekday: 'short', month: 'short', day: 'numeric' });
+    let dateFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     if (ev.allDay) {
         let lastDay = toFormEnd(ev.end || ev.start, true);
         if (toDateInputValue(lastDay) === toDateInputValue(ev.start)) {
@@ -785,7 +926,7 @@ function formatPopoverTime(ev) {
         }
         return dateFmt.format(ev.start) + ' – ' + dateFmt.format(lastDay) + ' · All day';
     }
-    let timeFmt = new Intl.DateTimeFormat(navigator.language, { hour: 'numeric', minute: '2-digit' });
+    let timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
     return dateFmt.format(ev.start) + ' · ' + timeFmt.format(ev.start) + ' – ' + timeFmt.format(ev.end || ev.start);
 }
 
@@ -891,10 +1032,10 @@ function getSearchableEvents(query) {
 }
 
 function formatSearchResultMeta(ev, jumpDate) {
-    let dateFmt = new Intl.DateTimeFormat(navigator.language, { weekday: 'short', month: 'short', day: 'numeric' });
+    let dateFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     let text = dateFmt.format(jumpDate);
     if (!ev.allDay) {
-        let timeFmt = new Intl.DateTimeFormat(navigator.language, { hour: 'numeric', minute: '2-digit' });
+        let timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
         text += ' · ' + timeFmt.format(jumpDate);
     }
     if (ev.extendedProps.location) text += ' · ' + ev.extendedProps.location;
@@ -1311,6 +1452,19 @@ allDayInput.addEventListener('change', function () {
 repeatFreqInput.addEventListener('change', updateRepeatVisibility);
 repeatEndInput.addEventListener('change', updateRepeatVisibility);
 
+weekdayToggleButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        btn.classList.toggle('selected');
+    });
+});
+
+// Keeps "Monthly on the 3rd Tuesday" (computed from the start date, not
+// a fixed string) in sync if the date changes while the modal is open -
+// matches Google Calendar's own picker, which updates this live too.
+startDateInput.addEventListener('change', function () {
+    if (repeatFreqInput.value === 'monthly') updateMonthlyModeLabels();
+});
+
 cancelButton.addEventListener('click', closeModal);
 
 modalBackdrop.addEventListener('click', function (e) {
@@ -1384,6 +1538,11 @@ popoverDuplicateButton.addEventListener('click', function () {
 
 popoverExportButton.addEventListener('click', function () {
     exportEventAsIcs(popoverEvent);
+    hideEventPopover();
+});
+
+popoverEmailButton.addEventListener('click', function () {
+    emailEventAsMailto(popoverEvent);
     hideEventPopover();
 });
 
@@ -1718,7 +1877,7 @@ function fixDayGridEventLayout(el) {
 let calendarEl = document.getElementById('calendar');
 let calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
-    locale: navigator.language.toLowerCase(),
+    locale: 'en',
     headerToolbar: {
         left: 'prev,today,next',
         center: 'title',

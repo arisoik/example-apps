@@ -20,12 +20,27 @@ items). The FullCalendar-facing mutation calls (`addEvent`, `setDates`,
 - **Recurring events**: `DAILY`/`WEEKLY`/`MONTHLY`/`YEARLY` with
   `INTERVAL`/`COUNT`/`UNTIL`, plus a scope prompt ("This event" / "This
   and following" / "All events") for edit/delete, via `EXDATE` and
-  series-splitting. `BYDAY`/`BYMONTHDAY`/`BYMONTH` aren't in the UI yet.
+  series-splitting. Weekly recurrence has a day-of-week toggle row
+  (`BYDAY` with plain codes, e.g. `MO,WE,FR`); monthly recurrence has a
+  "Monthly on day N" vs. "Monthly on the Nth weekday" choice (`BYDAY`
+  with an ordinal prefix, e.g. `2TU` or the "last" form `-1FR`), both
+  computed from the picked start date — matches Google Calendar's own
+  scope, including what it deliberately leaves out: `BYMONTHDAY` has no
+  standalone UI (unnecessary, since `RRULE`'s own default already uses
+  `DTSTART`'s day-of-month) and `BYMONTH` (e.g. "every March and
+  September") isn't built either. The occurrence math
+  (previous/nearest occurrence, remaining-count adjustment on "this and
+  following") calls `rrule.RRuleSet`/`RRule` directly rather than
+  `@fullcalendar/rrule`'s own simpler translation, since only the real
+  library correctly expands `BYDAY` patterns — see the `toFakeUtc`/
+  `fromFakeUtc` helpers in `calendar.js` for how this avoids reintroducing
+  the UTC-getter timezone bug documented below under RRule library.
 - **Interaction**: single click opens a preview popover
-  (time/location/repeat/description + delete/edit/duplicate/export);
-  double click opens edit directly; click-and-drag creates a timed event;
-  Duplicate always creates a standalone non-recurring copy. Icons are
-  Tabler (not Material Symbols — deliberate, see Vendored dependencies).
+  (time/location/repeat/description + delete/edit/duplicate, then a gap,
+  then export/email); double click opens edit directly; click-and-drag
+  creates a timed event; Duplicate always creates a standalone
+  non-recurring copy. Icons are Tabler (not Material Symbols —
+  deliberate, see Vendored dependencies).
 - **Toolbar**: YouTube-style layout — hamburger (sidebar toggle, closed by
   default) + centered always-visible search + "⋯" overflow menu (Import,
   FullCalendar version). Search is a live anchored dropdown, 2-character
@@ -44,13 +59,25 @@ items). The FullCalendar-facing mutation calls (`addEvent`, `setDates`,
   (`BEGIN:VCALENDAR` must be present), and a post-import summary
   (imported / skipped-duplicate / skipped-unreadable counts); a
   staged/per-event-confirmation mode was considered and dropped — Google
-  Calendar/Outlook/Apple Calendar don't do that either. Known
-  limitations: a named `TZID` is read as floating local time (not
-  converted); unsupported `RRULE` parts (`BYDAY`/`BYMONTHDAY`/`BYMONTH`/
-  `BYYEARDAY`/`BYWEEKNO`/`BYSETPOS`) simplify to plain `FREQ`+`INTERVAL`
-  (`console.warn`ed, not silent); `VALARM` (reminders) is silently
-  dropped on import — see Open items, this app has no reminder feature
-  to keep that data for yet.
+  Calendar/Outlook/Apple Calendar don't do that either. `BYDAY` round-trips
+  for the two shapes this app's UI produces (plain weekday list for
+  weekly, single ordinal-prefixed code for monthly); any other `RRULE`
+  part, including a `BYDAY` this app's UI can't express (e.g. multiple
+  ordinal codes like `1MO,3MO`), `BYMONTHDAY`, `BYMONTH`, `BYYEARDAY`,
+  `BYWEEKNO`, `BYSETPOS`, simplifies to plain `FREQ`+`INTERVAL`
+  (`console.warn`ed, not silent). Known limitations: a named `TZID` is
+  read as floating local time (not converted); `VALARM` (reminders) is
+  silently dropped on import — see Open items, this app has no reminder
+  feature to keep that data for yet.
+- **Email an event**: popover action next to Export, `mailto:` with
+  subject = event title and a plain-text body (date/time, repeat
+  summary, location, description) — not the `.ics` file itself, since
+  `mailto:` (RFC 6068) can only prefill text, never an attachment.
+  Matches the old built-in calendar's own browser-context fallback
+  (`sendEventToNativeEmailClient` in `web-ui`'s `init.js`), minus the
+  Peergos secret-link it also included in the body — that relies on the
+  sharing API, which isn't yet confirmed reachable from a sandboxed app
+  (see Open items), so it's left out rather than blocked on it.
 - **Multiple calendars**: sidebar with show/hide checkboxes and an Edit/
   Delete menu; colors from a small fixed palette; the primary calendar
   can't be deleted (matches Google/Outlook/Apple). Visibility filtering
@@ -127,13 +154,17 @@ color assignment in this codebase already does.
 ## Requirements (feature parity with the old built-in calendar)
 
 - Single and recurring event create/edit/delete (`DAILY`/`WEEKLY`/`MONTHLY`/
-  `YEARLY`, `BYDAY`, `BYMONTHDAY`, `BYMONTH`, `INTERVAL`, `COUNT`, `UNTIL`)
+  `YEARLY`, `INTERVAL`, `COUNT`, `UNTIL` — done; `BYDAY` done for the two
+  shapes Google Calendar's own basic UI exposes — weekly multi-day, monthly
+  nth-weekday; `BYMONTHDAY`/`BYMONTH` deliberately not built as standalone
+  UI, see Status)
 - Recurring edits scoped to "this event" / "this and future" / "all events"
+  (done)
 - Event fields: title, location, description, color (per-calendar), status
 - Multiple calendars: create/rename/delete/recolor, show/hide filtering (done)
 - Sharing a calendar or a single event
 - `.ics` import (bulk done, see Status) and export (single event and
-  per-calendar done, see Status; email an event still open)
+  per-calendar done; email an event done, see Status)
 - Read-only mode, whole-calendar or per-event
 - Dark mode via the sandbox runtime's `?theme=` param (done)
 - Timezone handling, guest/secret-link access

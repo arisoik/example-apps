@@ -577,6 +577,35 @@ body {
   width: 64px;
 }
 
+.repeat-weekday-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.weekday-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--fc-breezy-strong-border);
+  background: transparent;
+  color: var(--fc-breezy-foreground);
+  font: inherit;
+  font-size: .8em;
+  cursor: pointer;
+  padding: 0;
+}
+
+.weekday-toggle.selected {
+  background: var(--fc-breezy-primary);
+  border-color: var(--fc-breezy-primary);
+  color: var(--fc-breezy-primary-foreground);
+}
+
+.event-modal #event-repeat-monthly-mode {
+  margin-top: 8px;
+}
+
 .event-modal #event-repeat-until {
   margin-top: 8px;
 }
@@ -710,6 +739,14 @@ body {
 
 #popover-delete:hover {
   color: var(--danger);
+}
+
+/* Pushes the destructive/editing actions (delete, duplicate, edit) to
+   the far right, leaving the read-only ones (export, email) at the far
+   left - the gap this creates is the only spacing between the two
+   groups, so .popover-actions' own `gap` stays small and uniform. */
+#popover-delete {
+  margin-left: auto;
 }
 
 .popover-row {
