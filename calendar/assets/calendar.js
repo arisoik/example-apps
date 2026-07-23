@@ -160,7 +160,6 @@ function mockDate(dayOffset, hour, minute) {
 let gymStart = mockDate(0, 7, 0);
 
 let url = new URL(window.location.href);
-let filePath = url.searchParams.get('path');
 let isWritable = url.searchParams.get('isPathWritable') == 'true';
 let theme = url.searchParams.get('theme');
 let isDarkMode = theme === 'dark-mode';
@@ -283,7 +282,6 @@ let scopeCancelButton = document.getElementById('scope-cancel');
 
 let popover = document.getElementById('event-popover');
 let popoverTitle = document.getElementById('popover-title');
-let popoverTimeRow = document.getElementById('popover-time-row');
 let popoverTime = document.getElementById('popover-time');
 let popoverRepeatRow = document.getElementById('popover-repeat-row');
 let popoverRepeat = document.getElementById('popover-repeat');
