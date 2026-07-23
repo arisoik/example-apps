@@ -224,10 +224,14 @@ let popoverEditButton = document.getElementById('popover-edit');
 let popoverDuplicateButton = document.getElementById('popover-duplicate');
 let popoverExportButton = document.getElementById('popover-export');
 let popoverDeleteButton = document.getElementById('popover-delete');
-let importButton = document.getElementById('import-button');
 let icsFileInput = document.getElementById('ics-file-input');
+let overflowMenuButton = document.getElementById('overflow-menu-button');
+let overflowMenu = document.getElementById('overflow-menu');
+let overflowImportButton = document.getElementById('overflow-import-button');
+let overflowMenuVersion = document.getElementById('overflow-menu-version');
+let searchBar = document.getElementById('search-bar');
 let searchButton = document.getElementById('search-button');
-let searchModalBackdrop = document.getElementById('search-modal-backdrop');
+let searchClearButton = document.getElementById('search-clear-button');
 let searchInput = document.getElementById('search-input');
 let searchResults = document.getElementById('search-results');
 
@@ -807,7 +811,11 @@ function formatSearchResultMeta(ev, jumpDate) {
 function renderSearchResults(query) {
     searchResults.innerHTML = '';
     let trimmed = query.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+        closeSearchResults();
+        return;
+    }
+    searchResults.classList.add('open');
     if (trimmed.length < MIN_SEARCH_QUERY_LENGTH) {
         let hint = document.createElement('div');
         hint.className = 'search-empty';
@@ -869,7 +877,7 @@ function renderSearchResults(query) {
 // whichever visible occurrence is closest to jumpDate, since several can
 // share the same id - now that gotoDate() has made one exist.
 function jumpToSearchResult(ev, jumpDate) {
-    closeSearchModal();
+    closeSearchResults();
     calendar.gotoDate(jumpDate);
     let instance = calendar.getEvents().filter(function (e) { return e.id === ev.id; })
         .reduce(function (best, e) {
@@ -879,15 +887,15 @@ function jumpToSearchResult(ev, jumpDate) {
     if (anchorEl) showEventPopover(instance, anchorEl);
 }
 
-function openSearchModal() {
-    searchModalBackdrop.classList.add('open');
-    searchInput.value = '';
-    searchResults.innerHTML = '';
-    searchInput.focus();
+function closeSearchResults() {
+    searchResults.classList.remove('open');
 }
 
-function closeSearchModal() {
-    searchModalBackdrop.classList.remove('open');
+function clearSearch() {
+    searchInput.value = '';
+    searchResults.innerHTML = '';
+    closeSearchResults();
+    searchClearButton.classList.remove('visible');
 }
 
 // --- Multi-calendar: create/rename/recolor/delete, show/hide filtering ---
@@ -1264,9 +1272,16 @@ popoverExportButton.addEventListener('click', function () {
     hideEventPopover();
 });
 
-importButton.addEventListener('click', function () {
+overflowMenuButton.addEventListener('click', function () {
+    overflowMenu.classList.toggle('open');
+});
+
+overflowImportButton.addEventListener('click', function () {
+    overflowMenu.classList.remove('open');
     icsFileInput.click();
 });
+
+overflowMenuVersion.textContent = 'FullCalendar v' + FullCalendar.version;
 
 icsFileInput.addEventListener('change', function () {
     let file = icsFileInput.files[0];
@@ -1281,14 +1296,30 @@ icsFileInput.addEventListener('change', function () {
     reader.readAsText(file);
 });
 
-searchButton.addEventListener('click', openSearchModal);
+// Always visible in the toolbar, not a click-to-open trigger - matches
+// YouTube's own search bar rather than this app's earlier command-palette
+// version. Clicking the search button itself just (re)focuses the input;
+// results already render live as you type, so there's nothing else for
+// it to submit.
+searchButton.addEventListener('click', function () {
+    searchInput.focus();
+});
 
 searchInput.addEventListener('input', function () {
+    searchClearButton.classList.toggle('visible', searchInput.value.length > 0);
     renderSearchResults(searchInput.value);
 });
 
-searchModalBackdrop.addEventListener('click', function (e) {
-    if (e.target === searchModalBackdrop) closeSearchModal();
+// Re-opens the dropdown when refocusing an already-typed query (e.g.
+// after clicking away and back), rather than requiring the text to be
+// retyped to see results again.
+searchInput.addEventListener('focus', function () {
+    if (searchInput.value.trim()) renderSearchResults(searchInput.value);
+});
+
+searchClearButton.addEventListener('click', function () {
+    clearSearch();
+    searchInput.focus();
 });
 
 // Below MOBILE_BREAKPOINT (matches calendar.css's own `@media (max-width:
@@ -1362,19 +1393,28 @@ confirmModalBackdrop.addEventListener('click', function (e) {
     if (e.target === confirmModalBackdrop) closeConfirmModal();
 });
 
-// Closes an open calendar "..." menu on any click that isn't on one of
-// its own buttons or its trigger button - not exempting the menu's own
-// blank space, since the menu is tall enough to overlap the row below it
-// (a click aimed at that row's kebab button lands on the open menu
-// instead), and treating that as "inside the menu, do nothing" left the
-// menu looking stuck open. Capture phase, not bubble: eventClick calls
-// stopPropagation() (below), so a bubble-phase listener here never saw a
-// click on an event at all; capture runs before that stopPropagation()
-// happens.
+// Closes an open calendar "..." menu on any click outside its own
+// buttons/trigger and the overflow menu's inert version line. A
+// calendar-list menu's own blank space is deliberately NOT exempted,
+// since it's tall enough to overlap the row below it and a click meant
+// for that row's kebab button would otherwise land on the open menu and
+// do nothing, leaving it stuck open - the version line has no such
+// row underneath it to protect. Capture phase, not bubble: eventClick's
+// own stopPropagation() (below) would otherwise hide clicks on events
+// from a bubble-phase listener here.
 document.addEventListener('click', function (e) {
-    if (!e.target.closest('.calendar-menu button') && !e.target.closest('.calendar-menu-button')) {
+    if (!e.target.closest('.calendar-menu button') && !e.target.closest('.calendar-menu-button') && !e.target.closest('#overflow-menu-button') && !e.target.closest('#overflow-menu-version')) {
         closeAllCalendarMenus();
     }
+}, true);
+
+// Closes the search results dropdown on any click outside #search-bar.
+// Capture phase from the start this time, not bubble - the same
+// stopPropagation()-swallows-a-bubble-listener issue fixed twice above
+// would otherwise just resurface a third time here (e.g. clicking a
+// calendar kebab button while results are open).
+document.addEventListener('click', function (e) {
+    if (!searchBar.contains(e.target)) closeSearchResults();
 }, true);
 
 // Clicking outside the popover closes it and still reaches whatever it
@@ -1411,7 +1451,7 @@ document.addEventListener('keydown', function (e) {
     else if (scopeModalBackdrop.classList.contains('open')) closeScopeModal();
     else if (calendarModalBackdrop.classList.contains('open')) closeCalendarModal();
     else if (popover.classList.contains('open')) hideEventPopover();
-    else if (searchModalBackdrop.classList.contains('open')) closeSearchModal();
+    else if (searchResults.classList.contains('open')) closeSearchResults();
 });
 
 form.addEventListener('submit', function (e) {
@@ -1467,7 +1507,7 @@ deleteButton.addEventListener('click', function () {
 
 // Search is read-only and stays available without write permission;
 // only Import (which adds data) is hidden.
-importButton.style.display = isWritable ? '' : 'none';
+overflowImportButton.style.display = isWritable ? '' : 'none';
 addCalendarButton.style.display = isWritable ? '' : 'none';
 renderCalendarList();
 

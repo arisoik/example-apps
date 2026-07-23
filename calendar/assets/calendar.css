@@ -31,12 +31,18 @@ body {
 }
 
 /* Desktop-only collapse (reclaims grid width in place, no overlay) -
-   `.open`/backdrop below is the separate mobile drawer behavior. */
-#sidebar.collapsed {
-  flex-basis: 0;
-  padding: 0;
-  border-right: none;
-  overflow: hidden;
+   `.open`/backdrop below is the separate mobile drawer behavior. Scoped
+   above the mobile breakpoint since the mobile toggle only ever touches
+   `.open`, never `.collapsed` - without this guard, `.collapsed`'s
+   padding/overflow would still clip the drawer's content once `.open`
+   slides it into view. */
+@media (min-width: 701px) {
+  #sidebar.collapsed {
+    flex-basis: 0;
+    padding: 0;
+    border-right: none;
+    overflow: hidden;
+  }
 }
 
 #sidebar-backdrop {
@@ -141,6 +147,18 @@ body {
   flex: 0 0 auto;
 }
 
+.calendar-menu-version {
+  padding: 8px 10px;
+  color: #888;
+  font-size: .8em;
+  white-space: nowrap;
+}
+
+#overflow-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
 .sidebar-add-button {
   display: flex;
   align-items: center;
@@ -190,10 +208,6 @@ body {
   display: block;
 }
 
-#sidebar-toggle-button {
-  margin-right: auto;
-}
-
 @media (max-width: 700px) {
   #sidebar {
     position: fixed;
@@ -221,82 +235,103 @@ body {
   }
 }
 
-/* Slim utility strip above the calendar's own toolbar, matching the
-   Google Calendar/Gmail pattern of a right-aligned row of secondary
-   actions (search, import, etc.) rather than one-off labeled buttons. */
+/* Toolbar strip above the calendar's own header, laid out like YouTube's
+   own top bar: hamburger pinned left, a prominent search bar taking the
+   available center space, an overflow "..." menu pinned right - rather
+   than everything packed to one side. */
 #utility-bar {
   flex: 0 0 auto;
-  padding: 6px 8px 0;
+  padding: 8px 8px 0;
   box-sizing: border-box;
   display: flex;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-.search-trigger {
-  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 12px;
-  border: 1px solid #ddd;
-  border-radius: 20px;
-  background: #fff;
-  color: #666;
-  cursor: pointer;
-  font: inherit;
-  font-size: .9em;
+  gap: 12px;
 }
 
-.search-trigger:hover {
-  background: #f5f5f5;
-  border-color: #ccc;
-}
-
-.search-trigger-label {
-  color: #666;
-}
-
-.search-modal-backdrop {
-  align-items: flex-start;
-  padding-top: 12vh;
-}
-
-.search-modal {
-  width: 480px;
-  padding: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  max-height: 70vh;
-}
-
-.search-modal-input-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid #eee;
-  color: #888;
-  flex: 0 0 auto;
-}
-
-.search-modal-input-row svg {
-  flex: 0 0 auto;
-}
-
-.search-modal-input-row input[type="text"] {
+/* The pill is built from three adjacent pieces (input, clear "x",
+   search button) sharing one border/radius so it reads as a single
+   control, same as YouTube's own search box + attached search button. */
+#search-bar {
+  position: relative;
   flex: 1 1 auto;
-  border: none;
-  outline: none;
+  min-width: 0;
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  align-items: stretch;
+}
+
+#search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 14px;
+  border: 1px solid #ccc;
+  border-right: none;
+  border-radius: 20px 0 0 20px;
   font: inherit;
-  font-size: 1.05em;
-  color: #222;
-  background: transparent;
+  outline: none;
+  box-sizing: border-box;
+}
+
+#search-input:focus {
+  border-color: #1a73e8;
+}
+
+#search-clear-button {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid #ccc;
+  border-left: none;
+  border-right: none;
+  background: #fff;
+  color: #888;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+#search-clear-button.visible {
+  display: flex;
+}
+
+#search-button {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  border: 1px solid #ccc;
+  border-left: none;
+  border-radius: 0 20px 20px 0;
+  background: #f5f5f5;
+  color: #555;
+  cursor: pointer;
+  padding: 0;
+}
+
+#search-button:hover {
+  background: #eee;
 }
 
 .search-results {
-  overflow-y: auto;
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 6px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
   padding: 6px;
+  box-sizing: border-box;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 1050;
+}
+
+.search-results.open {
+  display: block;
 }
 
 .search-result-item {

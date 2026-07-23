@@ -38,9 +38,10 @@ click-*and*-drag to pick a range (`selectable`/`select`, not `dateClick`);
 the event popup and the recurring-event scope prompt close on Escape or
 an outside click. Clicking outside the popover closes it and still lets
 the click act on whatever it landed on — switching straight to a
-different event's popover in one click, opening the search/import
-buttons normally. The one exception is day-grid `select` (clicking empty
-space to create a new event), swallowed via a capture-phase `mousedown`
+different event's popover in one click, opening the overflow menu or
+focusing the search input normally. The one exception is day-grid
+`select` (clicking empty space to create a new event), swallowed via a
+capture-phase `mousedown`
 listener rather than passed through, since opening the create form as a
 side effect of dismissing a popover reads as broken in a way switching to
 a different event doesn't.
@@ -57,12 +58,39 @@ services like Google's, visually borrowing Google's specific icon
 language felt like the wrong call even though it's freely licensed. Tabler
 is a neutral, modern outline-icon set with no big-tech branding attached.
 
-**Search** is a command-palette-style overlay, not an anchored dropdown —
-a pill-shaped trigger in the utility bar (magnifying glass + "Search"
-label) opens a centered modal with a text input and a live results list
-below it, matching the visual pattern used by most modern app/docs search.
-No keyboard shortcut - deliberately click-only, not a hidden Ctrl+K/⌘K
-affordance a user has to already know about. Each result shows the same
+**The toolbar** follows YouTube's own layout rather than the earlier
+command-palette design: a hamburger on the left toggles the sidebar (see
+below), an always-visible search bar takes the prominent center space, and
+a "⋯" overflow menu sits on the right (Import .ics, plus a non-interactive
+FullCalendar version line read from `FullCalendar.version` rather than
+hardcoded, so it can't drift from the vendored bundle on a future
+upgrade). There's no separate brand/logo mark in the bar — with the
+sidebar closed by default (see below), the search bar is the visually
+dominant element, same as YouTube's.
+
+**Two real layout bugs found testing this at actual mobile widths**
+(360px, not a resized desktop window). `#search-bar`'s own `min-width`
+defaulted to `auto` as a flex child of `#utility-bar` — the search
+input's `min-width: 0` only lets *it* shrink within the bar, not the bar
+itself shrink within the toolbar — so at narrow widths it refused to
+shrink past its content size and pushed the "⋯" overflow button off the
+right edge of the viewport. Fixed by adding `min-width: 0` to `#search-bar`
+too, the standard fix for this flexbox pitfall. Separately, `#sidebar`
+starting with `class="collapsed"` (for the closed-by-default desktop
+state above) bled into the mobile drawer, since the mobile toggle only
+ever touches `.open`, never `.collapsed` — opening the drawer left
+`.collapsed`'s `padding: 0; overflow: hidden` clipping its content
+underneath the slide-in transform. Fixed by scoping `.collapsed` to
+`@media (min-width: 701px)`; the drawer's own default
+`transform: translateX(-100%)` already handles the closed state on
+mobile without it.
+
+**Search** is an anchored dropdown under the always-visible search input,
+not a click-to-open modal — typing live-renders a results list positioned
+directly below the input (`#search-results`, shown/hidden via its own
+`.open` class), matching the visual pattern used by most modern app/docs
+search. No keyboard shortcut - deliberately click-only, not a hidden
+Ctrl+K/⌘K affordance a user has to already know about. Each result shows the same
 kind of information an event does elsewhere in this app — title, a
 repeat-icon badge if recurring, cancelled events struck through,
 date/time (or "All day"), and location. Requires a 2-character minimum
@@ -88,11 +116,15 @@ that can be missed. `jumpToSearchResult()` re-resolves `ev` to a real
 rendered instance close to `jumpDate`, since a recurring series' master
 can have `.start === null` before `gotoDate()` makes an instance exist.
 Available in read-only mode (it doesn't mutate anything); Import is the
-only utility-bar icon hidden when `isPathWritable=false`. Escape and
-clicking the backdrop dismiss the modal, matching the other modals here.
+only overflow-menu item hidden when `isPathWritable=false` — the "⋯"
+button and the version line stay visible either way. Escape and clicking
+outside `#search-bar` both dismiss the dropdown; the outside-click closer
+is a capture-phase `document` listener, built that way from the start
+this time rather than reactively, for the same `stopPropagation()` reason
+as the two click-handling bugs described below.
 
 `.ics` export (single event, from the popover) and import (bulk, via the
-icon in the same utility bar) are implemented and hand-verified against
+overflow menu) are implemented and hand-verified against
 the actual RFC 5545 spec text, not memory — see `calendar.js`'s "`.ics`
 (RFC 5545) export/import" section. Round-trip tested (export → re-import,
 in-app) for a plain event, a `COUNT`-based recurring series, a
@@ -143,12 +175,10 @@ remaining calendar is blocked with a native `alert()`). Colors come from
 a small fixed palette (`CALENDAR_COLORS`), not free-form picking, same
 reasoning as the icon-set choice elsewhere in this app — a few
 pre-chosen, legible colors beats letting someone land on unreadable white
-text on pale yellow. The sidebar is persistent on desktop and an
-off-canvas drawer on mobile (`max-width: 700px`), toggled by a hamburger
-button that's hidden entirely above that width, with a dimmed backdrop
-that closes it on tap — collapsing the sidebar on *desktop* to reclaim
-grid space, which Google Calendar's own desktop UI also offers, is a
-deliberately deferred nice-to-have, not built here.
+text on pale yellow. The sidebar starts collapsed/closed on both desktop
+and mobile — the same hamburger button toggles it either way (see below
+for how the two behaviors differ), so there's nothing to reconcile between
+an initial-open desktop state and an initial-closed mobile one.
 Visibility filtering uses FullCalendar's own per-event `display` property
 (`'auto'`/`'none'`) via `EventApi.setProp()`, not CSS — CSS would still
 leave a hidden event's space reserved in FullCalendar's own row-height
