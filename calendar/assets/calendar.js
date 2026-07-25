@@ -1032,7 +1032,7 @@ function getSearchableEvents(query) {
     return results;
 }
 
-function formatSearchResultMeta(ev, jumpDate) {
+function formatSearchResultMeta(ev, jumpDate, cal) {
     let dateFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     let text = dateFmt.format(jumpDate);
     if (!ev.allDay) {
@@ -1040,6 +1040,7 @@ function formatSearchResultMeta(ev, jumpDate) {
         text += ' · ' + timeFmt.format(jumpDate);
     }
     if (ev.extendedProps.location) text += ' · ' + ev.extendedProps.location;
+    if (cal) text += ' · ' + cal.name;
     return text;
 }
 
@@ -1074,6 +1075,13 @@ function renderSearchResults(query) {
 
         let titleRow = document.createElement('div');
         titleRow.className = 'search-result-title-row';
+        let cal = getCalendarById(ev.extendedProps.calendarId);
+        if (cal) {
+            let dot = document.createElement('span');
+            dot.className = 'search-result-dot';
+            dot.style.backgroundColor = displayColor(cal.color);
+            titleRow.appendChild(dot);
+        }
         let titleSpan = document.createElement('span');
         titleSpan.className = 'search-result-title';
         if (ev.extendedProps.status === 'cancelled') titleSpan.classList.add('search-result-cancelled');
@@ -1089,7 +1097,7 @@ function renderSearchResults(query) {
 
         let metaRow = document.createElement('div');
         metaRow.className = 'search-result-meta';
-        metaRow.textContent = formatSearchResultMeta(ev, match.jumpDate);
+        metaRow.textContent = formatSearchResultMeta(ev, match.jumpDate, cal);
 
         item.appendChild(titleRow);
         item.appendChild(metaRow);
@@ -1112,6 +1120,17 @@ function renderSearchResults(query) {
 // share the same id - now that gotoDate() has made one exist.
 function jumpToSearchResult(ev, jumpDate) {
     closeSearchResults();
+    // A hidden calendar's events are rendered with display:'none' (see
+    // applyCalendarVisibility) - not just visually hidden, not in the DOM
+    // at all - so findEventAnchorEl() below would find nothing to open a
+    // popover on. Re-enabling visibility here matches Google Calendar's
+    // own search behavior: finding a result implies wanting to see it,
+    // not silently ignoring the click.
+    if (!isCalendarVisible(ev.extendedProps.calendarId)) {
+        getCalendarById(ev.extendedProps.calendarId).visible = true;
+        applyCalendarVisibility();
+        renderCalendarList();
+    }
     calendar.gotoDate(jumpDate);
     let instance = calendar.getEvents().filter(function (e) { return e.id === ev.id; })
         .reduce(function (best, e) {

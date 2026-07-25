@@ -31,7 +31,10 @@ items).
   decisions).
 - **Toolbar**: hamburger sidebar toggle + centered search + "⋯" overflow
   menu (Import). Search matches title/location/description across all
-  months, 2-char minimum.
+  months, 2-char minimum; each result shows a calendar-color dot and the
+  calendar's name; clicking a result on a currently-hidden calendar
+  re-enables that calendar (matching Google Calendar) instead of silently
+  failing to open a popover for an event that isn't rendered.
 - **`.ics` export/import**: RFC 5545. Export per-event or per-calendar.
   Import is bulk with duplicate detection (by `UID`) and a post-import
   summary. `BYDAY` round-trips for the two shapes the UI produces; other

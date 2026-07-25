@@ -403,6 +403,13 @@ body {
   gap: 6px;
 }
 
+.search-result-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
 .search-result-title {
   overflow: hidden;
   text-overflow: ellipsis;
