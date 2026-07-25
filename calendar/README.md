@@ -50,7 +50,12 @@ items).
   `--fc-breezy-*` variables for this app's UI too, so one attribute flips
   both. No live updates — requires relaunching the app.
 - **Navigation**: ISO week numbers, clickable to jump to Day/Week view;
-  `nowIndicator` for the current-time line.
+  `nowIndicator` for the current-time line; swipe left/right to go to the
+  next/previous view (touchend-only, horizontal-dominant gestures past a
+  50px threshold - doesn't touch vertical scrolling or FullCalendar's own
+  long-press drag-to-create). The toolbar's own "Today" button gets the
+  same slide transition, but only when it actually changes the view
+  (already-on-today is a no-op, nothing to animate).
 
 Two Breezy-specific fixes in `fixDayGridEventLayout()` (`calendar.js`):
 Month/Year rows get a per-event color dot (missing by default) and are

@@ -1941,6 +1941,79 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
 calendar.render();
 applyCalendarVisibility();
 
+// Approximates a slide transition without diffing/keeping around
+// FullCalendar's old DOM (it just replaces #calendar's content in place,
+// there's nothing to cross-fade between two real snapshots): jump #calendar
+// to an offset position with the transition disabled, swap in the new
+// view while still offset, then re-enable the transition and animate back
+// to rest - the new content reads as sliding in from the swipe direction.
+// Shared by the swipe and Today-button features below.
+function freezeForViewTransition(direction) {
+    calendarEl.style.transition = 'none';
+    calendarEl.style.opacity = '.4';
+    calendarEl.style.transform = 'translateX(' + (direction === 'next' ? 20 : -20) + 'px)';
+    calendarEl.offsetHeight; // force reflow so the jump above isn't itself animated
+}
+
+function settleViewTransition() {
+    calendarEl.style.transition = 'transform .2s ease-out, opacity .2s ease-out';
+    calendarEl.style.opacity = '1';
+    calendarEl.style.transform = 'translateX(0)';
+}
+
+// Swipe left/right to go to the next/previous view, matching Google/Apple/
+// Outlook's own mobile calendars - horizontal navigation only, nothing
+// else (no drag-to-move, no vertical handling). Only acts on touchend,
+// never touchmove, and never calls preventDefault - so it can't interfere
+// with normal vertical scrolling in Week/Day/List view. Doesn't coordinate
+// with FullCalendar's own drag-to-create-event handling (selectable:
+// true): that requires a long press before a touch drag registers
+// (selectLongPressDelay), which isn't how Google/Apple/Outlook expect
+// events to be created on mobile anyway (tap a slot, not drag), so it's
+// not worth the extra complexity of protecting.
+let touchStartX = null;
+let touchStartY = null;
+let SWIPE_MIN_DISTANCE = 50;
+
+calendarEl.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+}, { passive: true });
+
+calendarEl.addEventListener('touchend', function (e) {
+    if (touchStartX === null) return;
+    let touch = e.changedTouches[0];
+    let deltaX = touch.clientX - touchStartX;
+    let deltaY = touch.clientY - touchStartY;
+    touchStartX = null;
+    if (Math.abs(deltaX) < SWIPE_MIN_DISTANCE || Math.abs(deltaX) < Math.abs(deltaY)) return;
+    freezeForViewTransition(deltaX < 0 ? 'next' : 'prev');
+    if (deltaX < 0) calendar.next(); else calendar.prev();
+    settleViewTransition();
+}, { passive: true });
+
+// Same slide transition as swipe, for the toolbar's own "Today" button -
+// but only when it will actually change the view (clicking it while
+// today's already on screen is a no-op, no reason to animate). Breezy
+// hashes all of FullCalendar's own class names (see the theme comment up
+// top), so there's no stable ".fc-today-button" selector to hook - matched
+// by button text instead, which Breezy doesn't touch. Capture phase, not
+// bubble: needs to freeze #calendar's position before FullCalendar's own
+// click handler (attached directly to the button, bubble phase) re-renders
+// the view, not after - the actual navigation is still entirely
+// FullCalendar's own default handling, this only wraps it. settle is
+// deferred a tick since, unlike the swipe case, the re-render here happens
+// in that separate listener, not synchronously inline in this one.
+calendarEl.addEventListener('click', function (e) {
+    let btn = e.target.closest('button');
+    if (!btn || btn.textContent.trim() !== 'Today') return;
+    let now = new Date();
+    if (now >= calendar.view.activeStart && now < calendar.view.activeEnd) return;
+    freezeForViewTransition(now < calendar.view.activeStart ? 'prev' : 'next');
+    setTimeout(settleViewTransition, 0);
+}, true);
+
 // Re-applies fixDayGridEventLayout() to every rendered day-grid event on
 // resize/rotation, not just at mount - see that function's own comment
 // for why a one-time fix isn't enough. Debounced since resize (and
