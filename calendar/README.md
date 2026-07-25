@@ -23,8 +23,12 @@ items).
   directly (see `toFakeUtc`/`fromFakeUtc` in `calendar.js` — works around
   `rrule`'s UTC-getter timezone bug).
 - **Interaction**: click opens a popover (delete/edit/duplicate, then
-  export/email); double-click opens edit directly; drag creates a timed
-  event. No drag-to-move (see Architecture decisions).
+  export/email) and outlines the clicked event on the grid (disambiguates
+  which exact occurrence on a busy day, since the popup's position alone
+  isn't always enough - a deliberate deviation from Google/Outlook/Apple,
+  which rely on the popup position alone); double-click opens edit
+  directly; drag creates a timed event. No drag-to-move (see Architecture
+  decisions).
 - **Toolbar**: hamburger sidebar toggle + centered search + "⋯" overflow
   menu (Import). Search matches title/location/description across all
   months, 2-char minimum.

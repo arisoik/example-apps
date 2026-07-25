@@ -971,6 +971,7 @@ function showEventPopover(ev, anchorEl) {
 
     popoverActions.style.display = isWritable ? '' : 'none';
 
+    anchorEl.classList.add('fc-event-selected');
     popover.classList.add('open');
     positionPopover(anchorEl);
     // Re-position once more shortly after - FullCalendar's day-grid
@@ -990,6 +991,8 @@ function showEventPopover(ev, anchorEl) {
 
 function hideEventPopover() {
     popoverEvent = null;
+    let selected = document.querySelector('.fc-event-selected');
+    if (selected) selected.classList.remove('fc-event-selected');
     popover.classList.remove('open');
 }
 
