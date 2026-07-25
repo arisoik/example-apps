@@ -130,6 +130,10 @@ Notes:
   (`duration: { minutes: 45 }`).
 - Icons are inlined in HTML/JS, not `<img src>`, so they inherit
   `currentColor` for dark mode.
+- `assets/icon.png` (`appIcon` is relative to `assets/`, like every
+  sibling app) is derived from this app's own vendored
+  `outline/calendar.svg` Tabler icon: solid black, transparent
+  background, 512x512, matching sibling apps' own icon convention.
 - To update: bump the version in the URL, replace that package's `vendor/`
   subfolder wholesale.
 
