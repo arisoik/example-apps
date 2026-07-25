@@ -58,8 +58,7 @@ function weekdayCodeOf(date) {
 }
 
 // 1-5 for "the nth <weekday> of this month", or -1 if this date is in
-// the final 7 days of the month ("the last <weekday>") - matches Google
-// Calendar's own monthly-repeat convention.
+// the final 7 days of the month ("the last <weekday>").
 function nthWeekdayOfMonth(date) {
     let day = date.getDate();
     let daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -165,10 +164,8 @@ let theme = url.searchParams.get('theme');
 let isDarkMode = theme === 'dark-mode';
 if (isDarkMode) document.documentElement.setAttribute('data-color-scheme', 'dark');
 
-// Fixed palette, not free-form color picking - matches Google Calendar's
-// own calendar-color picker (a small set of pre-chosen, legible colors)
-// rather than letting a user land on something unreadable against white
-// event text.
+// Fixed palette, not free-form color picking - avoids a user landing on
+// something unreadable against white event text.
 let CALENDAR_COLORS = ['#3788d8', '#8e24aa', '#0b8043', '#e67c73', '#f4511e', '#e53935'];
 
 // Index-matched to CALENDAR_COLORS - the same colors saturated/lightened
@@ -187,10 +184,9 @@ function displayColor(hex) {
     return idx >= 0 ? CALENDAR_COLORS_DARK[idx] : hex;
 }
 
-// `primary: true` marks the one calendar that can never be deleted -
-// matches Google Calendar/Outlook/Apple Calendar, which all protect your
-// primary calendar the same way (you can rename or recolor it, just not
-// remove it - there always has to be somewhere for events to land).
+// `primary: true` marks the one calendar that can never be deleted - can
+// be renamed or recolored, just not removed, since there always has to
+// be somewhere for events to land.
 let mockCalendars = [
     { id: 'cal-personal', name: 'Personal', color: CALENDAR_COLORS[0], visible: true, primary: true },
     { id: 'cal-work', name: 'Work', color: CALENDAR_COLORS[1], visible: true }
@@ -355,8 +351,7 @@ function formStartDate() {
 }
 
 // "Monthly on day 15" / "Monthly on the 3rd Tuesday" - option text is
-// computed from the form's own start date (not fixed strings), matching
-// Google Calendar's own monthly-repeat picker.
+// computed from the form's own start date, not fixed strings.
 function updateMonthlyModeLabels() {
     let start = formStartDate();
     let dayOfMonthOpt = repeatMonthlyModeInput.querySelector('option[value="dayOfMonth"]');
@@ -377,10 +372,10 @@ function updateRepeatVisibility() {
     repeatWeekdayRow.style.display = (freq === 'weekly') ? '' : 'none';
     repeatMonthlyModeInput.style.display = (freq === 'monthly') ? '' : 'none';
     // Nothing checked yet (a fresh event, or freq just switched to
-    // weekly) defaults to the form's own start-date weekday, matching
-    // Google Calendar's own weekly-repeat picker - editing an existing
-    // weekly series already has real selections by this point (set in
-    // populateRecurForm before it calls this), so this is a no-op there.
+    // weekly) defaults to the form's own start-date weekday - editing an
+    // existing weekly series already has real selections by this point
+    // (set in populateRecurForm before it calls this), so this is a
+    // no-op there.
     if (freq === 'weekly' && !selectedWeekdays().length) setSelectedWeekdays([weekdayCodeOf(formStartDate())]);
     if (freq === 'monthly') updateMonthlyModeLabels();
 }
@@ -592,9 +587,9 @@ function idFromIcsUid(uid) {
 // shape) get a Peergos UID - RFC 5545's UID is meant to be a stable
 // identity for that event across every system it passes through, not
 // something to rewrite just because it was imported here. Re-exporting a
-// foreign event (Google, Outlook, ...) keeps its original UID untouched,
-// so re-importing that file back into its source app is still recognized
-// as the same event rather than a new duplicate.
+// foreign event keeps its original UID untouched, so re-importing that
+// file back into its source app is still recognized as the same event
+// rather than a new duplicate.
 function isNativeEventId(id) {
     return /^evt-\d+-[a-z0-9]+$/.test(id);
 }
@@ -996,9 +991,9 @@ function hideEventPopover() {
     popover.classList.remove('open');
 }
 
-// Client-side only (no backend search API yet, per ianopolous on
-// Peergos/web-ui#757) - kept behind this one function so swapping to a
-// real endpoint later is a data-source change, not a UI rewrite. Walks
+// Client-side only (no backend search API yet) - kept behind this one
+// function so swapping to a real endpoint later is a data-source change,
+// not a UI rewrite. Walks
 // the event store's defs rather than calendar.getEvents(), which for a
 // recurring series only returns occurrences within the currently
 // rendered range - defs keep a series searchable from any month.
@@ -1112,9 +1107,9 @@ function renderSearchResults(query) {
     });
 }
 
-// Navigates then opens the event's popover, matching Google Calendar's
-// own search-result behavior rather than a transient highlight. `ev` can
-// be a recurring series' master with no real instance (.start === null)
+// Navigates then opens the event's popover, rather than a transient
+// highlight. `ev` can be a recurring series' master with no real instance
+// (.start === null)
 // if it wasn't previously rendered, so re-resolves to a real instance -
 // whichever visible occurrence is closest to jumpDate, since several can
 // share the same id - now that gotoDate() has made one exist.
@@ -1123,9 +1118,8 @@ function jumpToSearchResult(ev, jumpDate) {
     // A hidden calendar's events are rendered with display:'none' (see
     // applyCalendarVisibility) - not just visually hidden, not in the DOM
     // at all - so findEventAnchorEl() below would find nothing to open a
-    // popover on. Re-enabling visibility here matches Google Calendar's
-    // own search behavior: finding a result implies wanting to see it,
-    // not silently ignoring the click.
+    // popover on. Re-enabling visibility here means finding a result
+    // implies wanting to see it, not silently ignoring the click.
     if (!isCalendarVisible(ev.extendedProps.calendarId)) {
         getCalendarById(ev.extendedProps.calendarId).visible = true;
         applyCalendarVisibility();
@@ -1268,10 +1262,9 @@ function renderCalendarList() {
         });
         menu.appendChild(exportBtn);
 
-        // Google Calendar/Outlook/Apple Calendar all protect the
-        // primary calendar the same way: no Delete option offered
-        // for it at all, rather than offering it and then blocking
-        // the action after the fact.
+        // No Delete option offered for the primary calendar at all,
+        // rather than offering it and then blocking the action after
+        // the fact.
         if (isWritable && !cal.primary) {
             let deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
@@ -1309,9 +1302,8 @@ function renderColorSwatches(selectedColor) {
         swatch.style.backgroundColor = displayColor(color);
         swatch.dataset.color = color;
         swatch.setAttribute('aria-label', color);
-        // Matches Google Calendar's own color picker: a checkmark marks
-        // the selected swatch, not just a border - a border alone is
-        // easy to miss against some of these colors.
+        // A checkmark marks the selected swatch, not just a border - a
+        // border alone is easy to miss against some of these colors.
         swatch.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5l10 -10"/></svg>';
         swatch.addEventListener('click', function () {
             calendarColorSwatches.querySelectorAll('.color-swatch').forEach(function (s) { s.classList.remove('selected'); });
@@ -1479,8 +1471,7 @@ weekdayToggleButtons.forEach(function (btn) {
 });
 
 // Keeps "Monthly on the 3rd Tuesday" (computed from the start date, not
-// a fixed string) in sync if the date changes while the modal is open -
-// matches Google Calendar's own picker, which updates this live too.
+// a fixed string) in sync if the date changes while the modal is open.
 startDateInput.addEventListener('change', function () {
     if (repeatFreqInput.value === 'monthly') updateMonthlyModeLabels();
 });
@@ -1657,9 +1648,8 @@ searchClearButton.addEventListener('click', function () {
 // Below MOBILE_BREAKPOINT (matches calendar.css's own `@media (max-width:
 // 700px)`), the sidebar is an off-canvas drawer (`.open` + a dimming
 // backdrop); above it, it's a persistent column that just collapses to
-// zero width in place - same button, different meaning depending on
-// how much room there already is, matching how Google Calendar's own
-// desktop and mobile web sidebars each behave.
+// zero width in place - same button, different meaning depending on how
+// much room there already is.
 let MOBILE_BREAKPOINT = 700;
 
 sidebarToggleButton.addEventListener('click', function () {
@@ -1923,8 +1913,7 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     // with no drag mechanism at all (unlike select, which also handles
     // dragging across cells to set a range). New events always get a
     // default duration (1 hour timed, 1 day all-day) instead of a
-    // user-dragged one, matching how Google/Apple/Outlook create an event
-    // from tapping an empty slot on mobile.
+    // user-dragged one.
     dateClick: function (info) {
         if (!isWritable) return;
         let endDate = info.allDay ? addDays(info.date, 1) : new Date(info.date.getTime() + 60 * 60 * 1000);
@@ -1968,16 +1957,15 @@ function settleViewTransition() {
     calendarEl.style.transform = 'translateX(0)';
 }
 
-// Swipe left/right to go to the next/previous view, matching Google/Apple/
-// Outlook's own mobile calendars - horizontal navigation only, nothing
-// else (no drag-to-move, no vertical handling). Only acts on touchend,
-// never touchmove, and never calls preventDefault - so it can't interfere
-// with normal vertical scrolling in Week/Day/List view. Doesn't coordinate
-// with FullCalendar's own drag-to-create-event handling (selectable:
-// true): that requires a long press before a touch drag registers
-// (selectLongPressDelay), which isn't how Google/Apple/Outlook expect
-// events to be created on mobile anyway (tap a slot, not drag), so it's
-// not worth the extra complexity of protecting.
+// Swipe left/right to go to the next/previous view - horizontal
+// navigation only, nothing else (no drag-to-move, no vertical handling).
+// Only acts on touchend, never touchmove, and never calls preventDefault
+// - so it can't interfere with normal vertical scrolling in Week/Day/List
+// view. Doesn't coordinate with FullCalendar's own drag-to-create-event
+// handling (selectable: true): that requires a long press before a touch
+// drag registers (selectLongPressDelay), which isn't how events get
+// created on mobile anyway (tap a slot, not drag), so it's not worth the
+// extra complexity of protecting.
 let touchStartX = null;
 let touchStartY = null;
 let SWIPE_MIN_DISTANCE = 50;

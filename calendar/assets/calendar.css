@@ -13,8 +13,7 @@
 /* Marks whichever event the popover is currently open for, toggled in
    showEventPopover()/hideEventPopover() - disambiguates which exact event
    was clicked on a busy day, where the popup's position alone isn't
-   always enough (a deliberate deviation from Google/Outlook/Apple, which
-   rely on the popup position alone). */
+   always enough. */
 .fc-event-selected {
   outline: 2px solid var(--fc-breezy-primary);
   outline-offset: 1px;
