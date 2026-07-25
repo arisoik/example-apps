@@ -1919,9 +1919,16 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
             fixDayGridEventLayout(info.el);
         }
     },
-    selectable: isWritable,
-    select: function (info) {
-        openModal('create', { date: info.start, endDate: info.end, allDay: info.allDay });
+    // dateClick, not selectable/select - fires on a plain click/tap only,
+    // with no drag mechanism at all (unlike select, which also handles
+    // dragging across cells to set a range). New events always get a
+    // default duration (1 hour timed, 1 day all-day) instead of a
+    // user-dragged one, matching how Google/Apple/Outlook create an event
+    // from tapping an empty slot on mobile.
+    dateClick: function (info) {
+        if (!isWritable) return;
+        let endDate = info.allDay ? addDays(info.date, 1) : new Date(info.date.getTime() + 60 * 60 * 1000);
+        openModal('create', { date: info.date, endDate: endDate, allDay: info.allDay });
     },
     eventClick: function (info) {
         info.jsEvent.stopPropagation();

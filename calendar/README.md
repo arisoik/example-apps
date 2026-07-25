@@ -27,8 +27,9 @@ items).
   which exact occurrence on a busy day, since the popup's position alone
   isn't always enough - a deliberate deviation from Google/Outlook/Apple,
   which rely on the popup position alone); double-click opens edit
-  directly; drag creates a timed event. No drag-to-move (see Architecture
-  decisions).
+  directly; clicking/tapping an empty slot creates a new event there with
+  a default duration (1 hour timed, 1 day all-day) - see Architecture
+  decisions for why it's a plain click and not drag-select.
 - **Toolbar**: hamburger sidebar toggle + centered search + "⋯" overflow
   menu (Import). Search matches title/location/description across all
   months, 2-char minimum; each result shows a calendar-color dot and the
@@ -82,7 +83,9 @@ Vendored-bundle gotcha: per-event `backgroundColor`/`borderColor`/
 - **No drag-and-drop** — editing a date goes through the edit popup.
   FullCalendar has an open report of event-dragging not working inside an
   embedded Android WebView, which is how the Peergos Android app renders
-  sandboxed apps.
+  sandboxed apps. Creating a new event is `dateClick` (plain click/tap),
+  not drag-select either - no drag interaction anywhere in this app,
+  deliberately, on both desktop and mobile.
 - **`.ics` stays plain RFC 5545**, standard `PRODID` — must round-trip with
   Google Calendar/Outlook/Apple Calendar.
 - **Recurrence dates are floating time, no `TZID`** — passed to
