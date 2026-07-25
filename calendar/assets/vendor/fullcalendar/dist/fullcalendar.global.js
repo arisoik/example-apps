@@ -1,5 +1,5 @@
 /*!
-FullCalendar (Vanilla JS) v7.0.1
+FullCalendar (Vanilla JS) v7.0.2
 Docs & License: https://fullcalendar.io
 (c) 2026 Adam Shaw
 */
@@ -2533,7 +2533,7 @@ var FullCalendar = (function (exports) {
       }
   }
 
-  var classNames = {"popoverZ":"fc-11","isolate":"fc-HY","borderBoxRoot":"fc-jz","notAllowed":"fc-j2","noScrollbars":"fc-Ki","noShrink":"fc-ST","calendarScreenRoot":"fc-Z9","safeTiles":"fc-1g","calendarPrintRoot":"fc-HC","cursorPointer":"fc-ZB","cursorResizeT":"fc-Ld","cursorResizeB":"fc-lJ","cursorResizeS":"fc-Zm","cursorResizeE":"fc-n5","cursorColResizer":"fc-Px","hit":"fc-QK","hitX":"fc-eh","hitY":"fc-M9","hitXSkinny":"fc-SC","selectNone":"fc-hi","invisible":"fc-F0","borderNone":"fc-6s","borderOnlyT":"fc-8B","borderOnlyB":"fc-RJ","borderOnlyS":"fc-Hm","borderOnlyE":"fc-ge","borderlessX":"fc-KC","borderlessY":"fc-mE","fakeBorderS":"fc-FA","flexRow":"fc-5g","flexCol":"fc-Fa","grow":"fc-16","liquid":"fc-Im","minHeight0":"fc-tZ","liquidX":"fc-Pw","printRoot":"fc-kE","printHeader":"fc-Xg","noPadding":"fc-np","noMargin":"fc-gd","noMarginY":"fc-hB","noMarginX":"fc-uk","whiteSpaceNoWrap":"fc-he","whiteSpacePre":"fc-Bv","overflowAnchorNone":"fc-U2","crop":"fc-bB","cropNowrap":"fc-pp","rel":"fc-8A","abs":"fc-7t","start0":"fc-pK","fill":"fc-wP","fillTop":"fc-yW","fillX":"fc-5j","fillY":"fc-1K","fillStart":"fc-bH","sticky":"fc-dY","stickyT":"fc-aX","stickyS":"fc-pZ","tableHeaderSticky":"fc-Mw","contentBox":"fc-CU","offscreen":"fc-jm","alignCenter":"fc-oO","alignStart":"fc-MM","alignEnd":"fc-Qk","footerScrollbarSticky":"fc-Q6","footerScrollbar":"fc-bD","breakInsideAvoid":"fc-lF","printSiblingRow":"fc-Vf","z0":"fc-BP","z1":"fc-XV","focusZ2":"fc-Ah","internalTimelineSlot":"fc-vz","internalEvent":"fc-4B","internalEventMirror":"fc-D7","internalEventDraggable":"fc-wp","internalEventSelected":"fc-Ex","internalEventResizable":"fc-wl","internalEventResizer":"fc-yM","internalEventResizerStart":"fc-2f","internalEventResizerEnd":"fc-zR","internalBgEvent":"fc-0j","internalMoreLink":"fc-M7","internalNavLink":"fc-tb","internalPopover":"fc-ew","internalView":"fc-IZ","internalScroller":"fc-UH"};
+  var classNames = {"popoverZ":"fc-dp","isolate":"fc-6T","borderBoxRoot":"fc-BO","notAllowed":"fc-la","noScrollbars":"fc-mM","noShrink":"fc-yf","calendarScreenRoot":"fc-wS","safeTiles":"fc-mP","calendarPrintRoot":"fc-OB","cursorPointer":"fc-hH","cursorResizeT":"fc-wi","cursorResizeB":"fc-My","cursorResizeS":"fc-N8","cursorResizeE":"fc-Yv","cursorColResizer":"fc-DR","hit":"fc-Lp","hitX":"fc-YZ","hitY":"fc-RU","hitXSkinny":"fc-4P","selectNone":"fc-6M","invisible":"fc-Sy","borderNone":"fc-QX","borderOnlyT":"fc-3t","borderOnlyB":"fc-fo","borderOnlyS":"fc-wk","borderOnlyE":"fc-fx","borderlessX":"fc-8R","borderlessY":"fc-5a","fakeBorderS":"fc-hM","flexRow":"fc-ei","flexCol":"fc-Xt","grow":"fc-QU","liquid":"fc-J6","minHeight0":"fc-w9","liquidX":"fc-q3","printRoot":"fc-32","printHeader":"fc-IH","noPadding":"fc-Kk","noMargin":"fc-5M","noMarginY":"fc-G8","noMarginX":"fc-tR","whiteSpaceNoWrap":"fc-8y","whiteSpacePre":"fc-gR","overflowAnchorNone":"fc-eu","crop":"fc-75","cropNowrap":"fc-CJ","rel":"fc-xp","abs":"fc-So","start0":"fc-Q8","fill":"fc-TJ","fillTop":"fc-X3","fillX":"fc-O5","fillY":"fc-WS","fillStart":"fc-Ld","sticky":"fc-l5","stickyT":"fc-dl","stickyS":"fc-oh","tableHeaderSticky":"fc-3f","contentBox":"fc-wx","offscreen":"fc-pJ","alignCenter":"fc-xM","alignStart":"fc-RJ","alignEnd":"fc-x9","footerScrollbarSticky":"fc-10","footerScrollbar":"fc-rg","breakInsideAvoid":"fc-sv","printSiblingRow":"fc-Ph","z0":"fc-6d","z1":"fc-y0","focusZ2":"fc-5y","internalTimelineSlot":"fc-RK","internalEvent":"fc-vB","internalEventMirror":"fc-nH","internalEventDraggable":"fc-Be","internalEventSelected":"fc-w3","internalEventResizable":"fc-Kf","internalEventResizer":"fc-ve","internalEventResizerStart":"fc-Er","internalEventResizerEnd":"fc-ll","internalBgEvent":"fc-BR","internalMoreLink":"fc-GZ","internalNavLink":"fc-Z9","internalPopover":"fc-VO","internalView":"fc-rF","internalScroller":"fc-zT"};
 
   function joinClassNames(...args) {
       return args.filter(Boolean).join(' ');
@@ -3244,7 +3244,6 @@ var FullCalendar = (function (exports) {
       // (can't be part of plugin system b/c must be provided at runtime)
       handleCustomRendering: identity,
       customRenderingMetaMap: identity,
-      customRenderingReplaces: Boolean,
       popoverClass: refineClassName,
       popoverCloseClass: refineClassName,
       popoverCloseContent: identity,
@@ -5659,13 +5658,6 @@ var FullCalendar = (function (exports) {
           this.currentDomNodes = [];
           this.handleEl = (el) => {
               this.el = el;
-              const { options } = this.context;
-              const { generatorName } = this.props;
-              if (!options.customRenderingReplaces || !hasCustomRenderingHandler(generatorName, options)) {
-                  this.updateElRef(el);
-              }
-          };
-          this.updateElRef = (el) => {
               if (this.props.elRef) {
                   setRef(this.props.elRef, el);
               }
@@ -5741,9 +5733,8 @@ var FullCalendar = (function (exports) {
                       id: this.id,
                       isActive,
                       containerEl: this.el,
-                      reportNewContainerEl: this.updateElRef, // front-end framework tells us about new container els
                       generatorMeta,
-                      ...props,
+                      renderProps: props.renderProps,
                   });
               }
           }
@@ -17276,7 +17267,7 @@ var FullCalendar = (function (exports) {
       return sliceEventStore(props.eventStore, props.eventUiBases, props.dateProfile.activeRange, allDay ? props.nextDayThreshold : null).fg;
   }
 
-  const version = '7.0.1';
+  const version = '7.0.2';
 
   var protectedStyles = /*#__PURE__*/Object.freeze({
   	__proto__: null,
