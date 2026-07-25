@@ -2,10 +2,7 @@
 
 Calendar app for Peergos with recurring events, sharing, and `.ics`
 import/export. Built as a standard sandboxed Peergos app (manifest +
-`/assets`), not built into `web-ui`. Replaces `web-ui`'s built-in TOAST UI
-calendar (unmaintained, poor mobile layout). Discussed with `web-ui`
-maintainer `ianopolous` in
-[Peergos/web-ui#757](https://github.com/Peergos/web-ui/issues/757).
+`/assets`), not built into `web-ui`.
 
 ## Status
 
@@ -18,24 +15,23 @@ items).
   following" / "all events") via `EXDATE` and series-splitting. Weekly has
   a day-of-week toggle (`BYDAY`, e.g. `MO,WE,FR`); monthly has "day N" vs.
   "Nth weekday" (`BYDAY` with ordinal prefix, e.g. `2TU`, or `-1FR` for
-  "last"). `BYMONTHDAY`/`BYMONTH` have no standalone UI, matching Google
-  Calendar's own scope. Occurrence math uses `rrule.RRuleSet`/`RRule`
+  "last"). `BYMONTHDAY`/`BYMONTH` have no standalone UI. Occurrence math
+  uses `rrule.RRuleSet`/`RRule`
   directly (see `toFakeUtc`/`fromFakeUtc` in `calendar.js` — works around
   `rrule`'s UTC-getter timezone bug).
 - **Interaction**: click opens a popover (delete/edit/duplicate, then
   export/email) and outlines the clicked event on the grid (disambiguates
   which exact occurrence on a busy day, since the popup's position alone
-  isn't always enough - a deliberate deviation from Google/Outlook/Apple,
-  which rely on the popup position alone); double-click opens edit
-  directly; clicking/tapping an empty slot creates a new event there with
-  a default duration (1 hour timed, 1 day all-day) - see Architecture
-  decisions for why it's a plain click and not drag-select.
+  isn't always enough); double-click opens edit directly; clicking/tapping
+  an empty slot creates a new event there with a default duration (1 hour
+  timed, 1 day all-day) - see Architecture decisions for why it's a plain
+  click and not drag-select.
 - **Toolbar**: hamburger sidebar toggle + centered search + "⋯" overflow
   menu (Import). Search matches title/location/description across all
   months, 2-char minimum; each result shows a calendar-color dot and the
   calendar's name; clicking a result on a currently-hidden calendar
-  re-enables that calendar (matching Google Calendar) instead of silently
-  failing to open a popover for an event that isn't rendered.
+  re-enables that calendar instead of silently failing to open a popover
+  for an event that isn't rendered.
 - **`.ics` export/import**: RFC 5545. Export per-event or per-calendar.
   Import is bulk with duplicate detection (by `UID`) and a post-import
   summary. `BYDAY` round-trips for the two shapes the UI produces; other
@@ -67,17 +63,23 @@ logic rebuilds this content without re-firing `eventDidMount`.
 Vendored-bundle gotcha: per-event `backgroundColor`/`borderColor`/
 `textColor` are silent no-ops in this build — use `color` instead.
 
-## Architecture decisions
+## For maintainers
 
-- **Sandboxed app, not built into `web-ui`** — per ianopolous, the old
-  calendar was only built-in because it predates the app sandbox.
-- **FullCalendar 7.0.1**, Standard bundle (MIT) + `@fullcalendar/rrule`.
+Everything below this point is for whoever is developing this app, not
+for someone just running it - why things are built the way they are,
+the feature checklist, exact vendored sources/versions, and tracked
+blockers.
+
+### Architecture decisions
+
+- **Sandboxed app, not built into `web-ui`** — an ordinary Peergos folder
+  (`peergos-app.json` + `/assets`), installed like any other app.
+- **FullCalendar 7.0.2**, Standard bundle (MIT) + `@fullcalendar/rrule`.
 - **Permissions: `READ_CALENDAR`/`WRITE_CALENDAR`** (declared in
   `peergos-app.json`, not yet implemented in `peergos` core). Grants access
-  to the same `<calendarDir>/<year>/<month>/<id>.ics` structure the old
-  calendar used — no data migration needed.
-- **Sharing** uses an existing app-facing API per ianopolous, not a new
-  permission — not yet confirmed working from a sandboxed context.
+  to the `<calendarDir>/<year>/<month>/<id>.ics` structure this app expects.
+- **Sharing** uses an existing app-facing API, not a new permission — not
+  yet confirmed working from a sandboxed context.
 - **Search is client-side** (no full-history index yet) — behind
   `getSearchableEvents()` so a real backend API can swap in later.
 - **No drag-and-drop** — editing a date goes through the edit popup.
@@ -86,14 +88,14 @@ Vendored-bundle gotcha: per-event `backgroundColor`/`borderColor`/
   sandboxed apps. Creating a new event is `dateClick` (plain click/tap),
   not drag-select either - no drag interaction anywhere in this app,
   deliberately, on both desktop and mobile.
-- **`.ics` stays plain RFC 5545**, standard `PRODID` — must round-trip with
-  Google Calendar/Outlook/Apple Calendar.
+- **`.ics` stays plain RFC 5545**, standard `PRODID` — must round-trip
+  cleanly with standard external calendar clients.
 - **Recurrence dates are floating time, no `TZID`** — passed to
   `@fullcalendar/rrule` as bare local-time strings, never `Date` objects,
   since the plugin reads `Date` via UTC getters regardless of actual
   timezone.
 
-## Requirements (parity with the old built-in calendar)
+### Requirements
 
 - Recurring events (done, see Status for `BYDAY`/`BYMONTHDAY`/`BYMONTH` scope)
 - Scoped recurring edits — this/following/all (done)
@@ -106,15 +108,15 @@ Vendored-bundle gotcha: per-event `backgroundColor`/`borderColor`/
 - Timezone handling, guest/secret-link access
 - Event search (done), duplicate-event action (done)
 
-## Vendored dependencies
+### Vendored dependencies
 
 No build step — `assets/vendor/<package>/` mirrors each package's own
 upstream layout.
 
 | Package | Version | Source |
 |---|---|---|
-| FullCalendar (Standard + all locales) | 7.0.1 | [GitHub release ZIP](https://github.com/fullcalendar/fullcalendar/releases/download/v7.0.1/fullcalendar-7.0.1.zip) |
-| `@fullcalendar/rrule` | 7.0.1 | [npm tarball](https://registry.npmjs.org/@fullcalendar/rrule/-/rrule-7.0.1.tgz) (no GitHub release asset) |
+| FullCalendar (Standard + all locales) | 7.0.2 | [GitHub release ZIP](https://github.com/fullcalendar/fullcalendar/releases/download/v7.0.2/fullcalendar-7.0.2.zip) |
+| `@fullcalendar/rrule` | 7.0.2 | [npm tarball](https://registry.npmjs.org/@fullcalendar/rrule/-/rrule-7.0.2.tgz) (no GitHub release asset) |
 | `rrule` | 2.8.1 | [npm tarball](https://registry.npmjs.org/rrule/-/rrule-2.8.1.tgz) (no GitHub release asset) |
 | Tabler Icons | outline set | [raw.githubusercontent.com/tabler/tabler-icons](https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/) |
 
@@ -122,16 +124,16 @@ Notes:
 - Only the `breezy` FullCalendar theme is vendored (of 5 shipped). Don't
   vendor FullCalendar from jsDelivr — it has no pre-built `.min.*` files,
   so jsDelivr Terser-minifies on the fly.
-- `@fullcalendar/rrule` v7.0.1 bug: a recurring event's `duration` as a
-  bare number silently produces `end === start`. Always use the object
-  form (`duration: { minutes: 45 }`).
-- Tabler Icons chosen over Material Symbols (Peergos is privacy-focused)
-  and over Feather/Lucide (higher npm adoption). Icons are inlined in
-  HTML/JS, not `<img src>`, so they inherit `currentColor` for dark mode.
+- `@fullcalendar/rrule` bug (still present as of v7.0.2, re-checked against
+  the changelog on this bump): a recurring event's `duration` as a bare
+  number silently produces `end === start`. Always use the object form
+  (`duration: { minutes: 45 }`).
+- Icons are inlined in HTML/JS, not `<img src>`, so they inherit
+  `currentColor` for dark mode.
 - To update: bump the version in the URL, replace that package's `vendor/`
   subfolder wholesale.
 
-## Open items (tracked, not actionable from this repo)
+### Open items (tracked, not actionable from this repo)
 
 - `READ_CALENDAR`/`WRITE_CALENDAR` permissions — blocks real save/load.
 - Confirmation the sharing API is reachable from a sandboxed app.
