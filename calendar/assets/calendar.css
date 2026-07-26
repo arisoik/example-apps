@@ -20,6 +20,32 @@
   border-radius: 3px;
 }
 
+/* Breezy's default event rendering has no text-overflow handling at all
+   in either case below - a long title just overflows past its own edge
+   with no ellipsis, rather than truncating cleanly. [data-event-all-day]
+   is this app's own stable attribute (set in eventDidMount, see
+   calendar.js) - Breezy hashes all of FullCalendar's own class names, so
+   there's nothing else stable to select here.
+   All-day (Month/Year, and the all-day row in Week/Day): title text sits
+   two levels down (event → flex wrapper → title div) in every all-day
+   event checked, both single- and multi-day. */
+[data-event-all-day="1"] > div > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Timed events: title is always the event's own last direct child - the
+   last of two (time, title) in Week/Day's time-grid blocks, or the last
+   of three (this app's own injected color dot, time, title - see
+   fixDayGridEventLayout()) in Month/Year's day-grid rows. Both land on
+   the same element this way, one rule covers both. */
+[data-event-all-day="0"] > div:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 [data-color-scheme=dark] {
   --danger: #f87171;
   color-scheme: dark;
@@ -142,6 +168,18 @@ body {
 .calendar-menu-button:hover {
   background: var(--fc-breezy-strong);
   color: var(--fc-breezy-secondary-icon-over);
+}
+
+/* The hover-to-reveal above only makes sense for a mouse - touch devices
+   never reliably trigger :hover at all, which left this button (and
+   everything behind it: Edit/Share/Export/Delete) effectively
+   unreachable on mobile. hover:none targets actual touch capability,
+   not a screen-width guess - a touch tablet at any width still needs
+   this, and a narrow desktop browser window still shouldn't get it. */
+@media (hover: none) {
+  .calendar-menu-button {
+    opacity: 1;
+  }
 }
 
 .calendar-menu {
@@ -670,6 +708,126 @@ body {
   margin-top: 16px;
 }
 
+#share-modal-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.share-modal-fixed {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.share-modal-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.share-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.share-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: .9em;
+}
+
+.share-user-row .share-username {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-modal .share-user-row button {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fc-breezy-secondary-icon);
+  cursor: pointer;
+}
+
+.event-modal .share-user-row button:hover {
+  background: var(--fc-breezy-strong);
+  color: var(--danger);
+}
+
+.share-empty {
+  padding: 6px 4px;
+  color: var(--fc-breezy-muted-foreground);
+  font-size: .9em;
+}
+
+.share-add-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.share-add-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.event-modal .share-link-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fc-breezy-foreground);
+  font: inherit;
+  font-size: .9em;
+  cursor: pointer;
+  text-align: left;
+}
+
+.event-modal .share-link-button:hover {
+  background: var(--fc-breezy-faint);
+}
+
+.share-link-row {
+  display: none;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.share-link-row.open {
+  display: flex;
+}
+
+.share-link-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.event-modal .share-link-row input {
+  color: var(--fc-breezy-muted-foreground);
+}
+
 .event-modal button {
   padding: 8px 16px;
   border-radius: 4px;
@@ -732,6 +890,14 @@ body {
   font-size: 1.05em;
   font-weight: 600;
   word-break: break-word;
+  /* Caps growth for titles that bypass the create/edit form's own
+     maxlength (imported .ics, pre-existing data) - without this a long
+     enough title (no maxlength there either) turns the popover into a
+     wall of text instead of a compact summary. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 
 .popover-icon-btn {
@@ -773,6 +939,18 @@ body {
   margin-top: 10px;
   font-size: .9em;
   color: var(--fc-breezy-foreground);
+}
+
+/* Same unbounded-growth risk as .popover-title (long location/description
+   text, whether from this app's own maxlength-capped form or an imported
+   .ics with no such cap) - clamp both the same way. */
+#popover-location,
+#popover-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .popover-icon {

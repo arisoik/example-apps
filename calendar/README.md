@@ -25,7 +25,11 @@ items).
   isn't always enough); double-click opens edit directly; clicking/tapping
   an empty slot creates a new event there with a default duration (1 hour
   timed, 1 day all-day) - see Architecture decisions for why it's a plain
-  click and not drag-select.
+  click and not drag-select. Title/location are capped at 200 characters
+  in the create/edit form; on the grid, event titles truncate with an
+  ellipsis rather than overflowing the cell, and the popover's
+  title/location/description each clamp to 3 lines for the same reason
+  (covers imported `.ics` events too, which bypass the form's cap).
 - **Toolbar**: hamburger sidebar toggle + centered search + "⋯" overflow
   menu (Import). Search matches title/location/description across all
   months, 2-char minimum; each result shows a calendar-color dot and the
@@ -41,7 +45,14 @@ items).
 - **Email an event**: `mailto:` with a plain-text summary in the body, not
   the `.ics` file — `mailto:` can't carry attachments.
 - **Multiple calendars**: create/rename/delete/recolor, show/hide
-  filtering. Primary calendar can't be deleted.
+  filtering. Primary calendar can't be deleted. Each calendar's "⋮" menu
+  is always visible on a touch device (`@media (hover: none)`) - it was
+  hover-only before, which made it unreachable on mobile.
+- **Sharing**: an event (popover) or a non-primary calendar (sidebar menu)
+  can be shared with a specific username or via a secret link - read-only
+  only, deliberately no write-access option, since that would let someone
+  else edit or delete your events. Mock state only (`mockShares`, see
+  Open items); no share option for the primary calendar, matching Delete.
 - **Dark mode**: reads Peergos's `?theme=` param once at launch, sets
   `data-color-scheme="dark"`. Reuses the vendored Breezy theme's own
   `--fc-breezy-*` variables for this app's UI too, so one attribute flips
@@ -50,9 +61,11 @@ items).
   `nowIndicator` for the current-time line; swipe left/right to go to the
   next/previous view (touchend-only, horizontal-dominant gestures past a
   50px threshold - doesn't touch vertical scrolling or FullCalendar's own
-  long-press drag-to-create). The toolbar's own "Today" button gets the
-  same slide transition, but only when it actually changes the view
-  (already-on-today is a no-op, nothing to animate).
+  long-press drag-to-create). The toolbar's own Previous/Next/Today
+  buttons, and clicking a search result that jumps to a different view,
+  all get the same slide transition (Today and search only animate when
+  they actually change the view - already-visible is a no-op, nothing to
+  animate).
 
 Two Breezy-specific fixes in `fixDayGridEventLayout()` (`calendar.js`):
 Month/Year rows get a per-event color dot (missing by default) and are
@@ -101,7 +114,7 @@ blockers.
 - Scoped recurring edits — this/following/all (done)
 - Event fields: title, location, description, color, status
 - Multiple calendars: create/rename/delete/recolor, filtering (done)
-- Sharing a calendar or event
+- Sharing a calendar or event (UI done, mock data - see Status/Open items)
 - `.ics` import (done) / export incl. email (done)
 - Read-only mode, whole-calendar or per-event
 - Dark mode (done)
@@ -140,7 +153,9 @@ Notes:
 ### Open items (tracked, not actionable from this repo)
 
 - `READ_CALENDAR`/`WRITE_CALENDAR` permissions — blocks real save/load.
-- Confirmation the sharing API is reachable from a sandboxed app.
+- Confirmation the sharing API is reachable from a sandboxed app - the
+  sharing UI itself is built and working (`mockShares` in `calendar.js`),
+  ready to wire up once this is confirmed.
 - Reminders/notifications need a Service Worker + Push API + a server to
   fire pushes — unconfirmed whether sandboxed apps get Service
   Worker/Notification permissions, or whether the Android WebView supports

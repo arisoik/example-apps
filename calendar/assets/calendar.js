@@ -276,6 +276,17 @@ let scopeSubtitle = document.getElementById('scope-subtitle');
 let scopeConfirmButton = document.getElementById('scope-confirm');
 let scopeCancelButton = document.getElementById('scope-cancel');
 
+let shareModalBackdrop = document.getElementById('share-modal-backdrop');
+let shareModalHeading = document.getElementById('share-modal-heading');
+let shareUserList = document.getElementById('share-user-list');
+let shareUsernameInput = document.getElementById('share-username-input');
+let shareAddButton = document.getElementById('share-add-button');
+let shareCreateLinkButton = document.getElementById('share-create-link-button');
+let shareLinkRow = document.getElementById('share-link-row');
+let shareLinkInput = document.getElementById('share-link-input');
+let shareLinkCopyButton = document.getElementById('share-link-copy-button');
+let shareCloseButton = document.getElementById('share-close-button');
+
 let popover = document.getElementById('event-popover');
 let popoverTitle = document.getElementById('popover-title');
 let popoverTime = document.getElementById('popover-time');
@@ -291,6 +302,7 @@ let popoverEditButton = document.getElementById('popover-edit');
 let popoverDuplicateButton = document.getElementById('popover-duplicate');
 let popoverExportButton = document.getElementById('popover-export');
 let popoverEmailButton = document.getElementById('popover-email');
+let popoverShareButton = document.getElementById('popover-share');
 let popoverDeleteButton = document.getElementById('popover-delete');
 let icsFileInput = document.getElementById('ics-file-input');
 let overflowMenuButton = document.getElementById('overflow-menu-button');
@@ -1125,7 +1137,16 @@ function jumpToSearchResult(ev, jumpDate) {
         applyCalendarVisibility();
         renderCalendarList();
     }
+    // Same slide transition as swipe/Previous/Next/Today, and same
+    // "only if it actually changes the view" guard as Today - a search
+    // result already in the visible range shouldn't animate just because
+    // gotoDate() was technically called. Synchronous here (unlike the
+    // button-wrapping cases above), since gotoDate() is called directly
+    // by this function rather than by a separate listener.
+    let viewChanging = jumpDate < calendar.view.activeStart || jumpDate >= calendar.view.activeEnd;
+    if (viewChanging) freezeForViewTransition(jumpDate < calendar.view.activeStart ? 'prev' : 'next');
     calendar.gotoDate(jumpDate);
+    if (viewChanging) settleViewTransition();
     let instance = calendar.getEvents().filter(function (e) { return e.id === ev.id; })
         .reduce(function (best, e) {
             return !best || Math.abs(e.start - jumpDate) < Math.abs(best.start - jumpDate) ? e : best;
@@ -1253,6 +1274,20 @@ function renderCalendarList() {
             menu.appendChild(editBtn);
         }
 
+        // The primary calendar is your own default calendar, not shared
+        // like the others - no Share option offered for it at all, same
+        // reasoning as Delete below (no option, not a blocked action).
+        if (isWritable && !cal.primary) {
+            let shareBtn = document.createElement('button');
+            shareBtn.type = 'button';
+            shareBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M15 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M15 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M8.7 10.7l6.6 -3.4"/><path d="M8.7 13.3l6.6 3.4"/></svg> Share';
+            shareBtn.addEventListener('click', function () {
+                closeAllCalendarMenus();
+                openShareModal('calendar:' + cal.id, cal.name);
+            });
+            menu.appendChild(shareBtn);
+        }
+
         let exportBtn = document.createElement('button');
         exportBtn.type = 'button';
         exportBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"/><path d="M7 11l5 5l5 -5"/><path d="M12 4l0 12"/></svg> Export';
@@ -1356,6 +1391,88 @@ function openImportSummaryModal(message) {
 
 function closeImportSummaryModal() {
     importSummaryModalBackdrop.classList.remove('open');
+}
+
+// Mock sharing state, keyed by a synthetic 'event:<id>'/'calendar:<id>'
+// string rather than stored on the event/calendar objects themselves -
+// keeps this behind one lookup, same reasoning as getSearchableEvents(),
+// so swapping in the real sharing API later touches this function only.
+// Read-only per-user sharing and a secret link only, deliberately no
+// read-write option - sharing a calendar/event never lets someone else
+// edit or delete your events.
+let mockShares = {};
+let shareModalKey = null;
+
+function getShareState(key) {
+    if (!mockShares[key]) mockShares[key] = { users: [], secretLink: null };
+    return mockShares[key];
+}
+
+function renderShareUserList() {
+    let state = getShareState(shareModalKey);
+    shareUserList.innerHTML = '';
+    if (!state.users.length) {
+        let empty = document.createElement('div');
+        empty.className = 'share-empty';
+        empty.textContent = 'Not shared with anyone yet.';
+        shareUserList.appendChild(empty);
+        return;
+    }
+    state.users.forEach(function (username) {
+        let row = document.createElement('div');
+        row.className = 'share-user-row';
+        let name = document.createElement('span');
+        name.className = 'share-username';
+        name.textContent = username;
+        let removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.setAttribute('aria-label', 'Remove ' + username);
+        removeBtn.title = 'Remove';
+        removeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></svg>';
+        removeBtn.addEventListener('click', function () {
+            state.users = state.users.filter(function (u) { return u !== username; });
+            renderShareUserList();
+        });
+        row.appendChild(name);
+        row.appendChild(removeBtn);
+        shareUserList.appendChild(row);
+    });
+}
+
+function openShareModal(key, displayName) {
+    shareModalKey = key;
+    let kind = key.indexOf('calendar:') === 0 ? 'calendar' : 'event';
+    // A long event/calendar name shouldn't be able to wrap the heading
+    // to a second line or push the modal wider - only the name itself
+    // truncates with an ellipsis, "Share"/kind around it always stay
+    // fully visible. Every part is a real element, not a bare text node
+    // (those don't reliably keep their whitespace or stay on one line
+    // once the container is display:flex) or innerHTML (displayName is
+    // arbitrary user-entered text).
+    shareModalHeading.innerHTML = '';
+    let prefix = document.createElement('span');
+    prefix.className = 'share-modal-fixed';
+    prefix.textContent = 'Share "';
+    let nameSpan = document.createElement('span');
+    nameSpan.className = 'share-modal-name';
+    nameSpan.textContent = displayName;
+    let suffix = document.createElement('span');
+    suffix.className = 'share-modal-fixed';
+    suffix.textContent = '" ' + kind;
+    shareModalHeading.appendChild(prefix);
+    shareModalHeading.appendChild(nameSpan);
+    shareModalHeading.appendChild(suffix);
+    shareUsernameInput.value = '';
+    let state = getShareState(key);
+    shareLinkRow.classList.toggle('open', !!state.secretLink);
+    if (state.secretLink) shareLinkInput.value = state.secretLink;
+    renderShareUserList();
+    shareModalBackdrop.classList.add('open');
+}
+
+function closeShareModal() {
+    shareModalBackdrop.classList.remove('open');
+    shareModalKey = null;
 }
 
 function performScopedDelete(ev, scope) {
@@ -1557,6 +1674,12 @@ popoverEmailButton.addEventListener('click', function () {
     hideEventPopover();
 });
 
+popoverShareButton.addEventListener('click', function () {
+    let ev = popoverEvent;
+    hideEventPopover();
+    openShareModal('event:' + ev.id, ev.title);
+});
+
 overflowMenuButton.addEventListener('click', function () {
     overflowMenu.classList.toggle('open');
 });
@@ -1721,6 +1844,42 @@ importSummaryModalBackdrop.addEventListener('click', function (e) {
     if (e.target === importSummaryModalBackdrop) closeImportSummaryModal();
 });
 
+shareAddButton.addEventListener('click', function () {
+    let username = shareUsernameInput.value.trim();
+    if (!username) return;
+    let state = getShareState(shareModalKey);
+    if (state.users.indexOf(username) === -1) state.users.push(username);
+    shareUsernameInput.value = '';
+    renderShareUserList();
+});
+
+shareUsernameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        shareAddButton.click();
+    }
+});
+
+shareCreateLinkButton.addEventListener('click', function () {
+    let state = getShareState(shareModalKey);
+    if (!state.secretLink) {
+        state.secretLink = 'https://peergos.example/s/' + Math.random().toString(36).slice(2, 10);
+    }
+    shareLinkInput.value = state.secretLink;
+    shareLinkRow.classList.add('open');
+});
+
+shareLinkCopyButton.addEventListener('click', function () {
+    shareLinkInput.select();
+    if (navigator.clipboard) navigator.clipboard.writeText(shareLinkInput.value);
+});
+
+shareCloseButton.addEventListener('click', closeShareModal);
+
+shareModalBackdrop.addEventListener('click', function (e) {
+    if (e.target === shareModalBackdrop) closeShareModal();
+});
+
 // Closes an open calendar "..." menu on any click outside its own
 // buttons/trigger and the overflow menu's inert version line. A
 // calendar-list menu's own blank space is deliberately NOT exempted,
@@ -1776,6 +1935,7 @@ document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (confirmModalBackdrop.classList.contains('open')) closeConfirmModal();
     else if (importSummaryModalBackdrop.classList.contains('open')) closeImportSummaryModal();
+    else if (shareModalBackdrop.classList.contains('open')) closeShareModal();
     else if (modalBackdrop.classList.contains('open')) closeModal();
     else if (scopeModalBackdrop.classList.contains('open')) closeScopeModal();
     else if (calendarModalBackdrop.classList.contains('open')) closeCalendarModal();
@@ -1988,24 +2148,40 @@ calendarEl.addEventListener('touchend', function (e) {
     settleViewTransition();
 }, { passive: true });
 
-// Same slide transition as swipe, for the toolbar's own "Today" button -
-// but only when it will actually change the view (clicking it while
-// today's already on screen is a no-op, no reason to animate). Breezy
-// hashes all of FullCalendar's own class names (see the theme comment up
-// top), so there's no stable ".fc-today-button" selector to hook - matched
-// by button text instead, which Breezy doesn't touch. Capture phase, not
+// Same slide transition as swipe, for the toolbar's own Today/Previous/
+// Next buttons - Today only animates when it will actually change the
+// view (clicking it while today's already on screen is a no-op, no
+// reason to animate). Breezy hashes all of FullCalendar's own class
+// names (see the theme comment up top), so there's no stable
+// ".fc-today-button"/".fc-prev-button"/".fc-next-button" selector to
+// hook. Today is matched by button text ("Today", stable regardless of
+// view); Previous/Next are icon-only (no text), matched by their
+// aria-label instead - FullCalendar sets this to "Previous <Unit>"/
+// "Next <Unit>" (e.g. "Previous Week"), where <Unit> changes with the
+// current view, so only the prefix is checked. Capture phase, not
 // bubble: needs to freeze #calendar's position before FullCalendar's own
-// click handler (attached directly to the button, bubble phase) re-renders
-// the view, not after - the actual navigation is still entirely
-// FullCalendar's own default handling, this only wraps it. settle is
-// deferred a tick since, unlike the swipe case, the re-render here happens
-// in that separate listener, not synchronously inline in this one.
+// click handler (attached directly to the button, bubble phase)
+// re-renders the view, not after - the actual navigation is still
+// entirely FullCalendar's own default handling, this only wraps it.
+// settle is deferred a tick since, unlike the swipe case, the re-render
+// here happens in that separate listener, not synchronously inline in
+// this one.
 calendarEl.addEventListener('click', function (e) {
     let btn = e.target.closest('button');
-    if (!btn || btn.textContent.trim() !== 'Today') return;
-    let now = new Date();
-    if (now >= calendar.view.activeStart && now < calendar.view.activeEnd) return;
-    freezeForViewTransition(now < calendar.view.activeStart ? 'prev' : 'next');
+    if (!btn) return;
+    let ariaLabel = btn.getAttribute('aria-label') || '';
+    let direction = null;
+    if (btn.textContent.trim() === 'Today') {
+        let now = new Date();
+        if (now < calendar.view.activeStart) direction = 'prev';
+        else if (now >= calendar.view.activeEnd) direction = 'next';
+    } else if (ariaLabel.indexOf('Previous') === 0) {
+        direction = 'prev';
+    } else if (ariaLabel.indexOf('Next') === 0) {
+        direction = 'next';
+    }
+    if (!direction) return;
+    freezeForViewTransition(direction);
     setTimeout(settleViewTransition, 0);
 }, true);
 
