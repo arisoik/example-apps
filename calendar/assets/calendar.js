@@ -14,11 +14,8 @@ function addDays(date, n) {
     return d;
 }
 
-// The form always shows the all-day end date inclusively (the event's last
-// actual day), matching how a user thinks about it. FullCalendar itself
-// stores all-day end dates exclusively (the moment after the event), so
-// that conversion happens only at these two boundaries: populating the
-// form from an event, and reading the form back into one.
+// The form shows the all-day end date inclusively; FullCalendar stores
+// it exclusively.
 function toFormEnd(end, allDay) {
     return allDay ? addDays(end, -1) : end;
 }
@@ -34,15 +31,8 @@ function computeDurationMs(start, end, allDay) {
     return endMs - startMs;
 }
 
-// rrule.js reads Date fields via UTC getters regardless of the actual
-// local timezone (the same bug documented for @fullcalendar/rrule in the
-// README's Vendored dependencies section - found there, fixed there by
-// always handing the *plugin* bare date strings instead of Date objects).
-// The helpers below call the rrule library directly, bypassing that
-// plugin's own translation layer, so they need the equivalent fix
-// themselves: build/read dates via their UTC fields instead of their
-// local ones, so rrule.js's UTC getters see the intended wall-clock
-// values regardless of the browser's own timezone.
+// rrule.js reads Date fields via UTC getters regardless of local
+// timezone - build/read dates via UTC fields to work around it.
 function toFakeUtc(localDate) {
     return new Date(Date.UTC(localDate.getFullYear(), localDate.getMonth(), localDate.getDate(), localDate.getHours(), localDate.getMinutes(), localDate.getSeconds()));
 }
@@ -68,14 +58,8 @@ function nthWeekdayOfMonth(date) {
 let ORDINAL_LABELS = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th', '-1': 'last' };
 let WEEKDAY_LABELS = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
 
-// recur.byday holds RRULE-text-style day codes - plain ('MO') for a
-// weekly series repeating on that weekday, ordinal-prefixed ('2TU',
-// '-1FR') for "the nth weekday of the month". Same array shape is reused
-// for both ICS export (BYDAY=MO,WE,FR joins directly) and here, where
-// each code becomes an actual rrule.js Weekday instance (not a plain
-// string) - only RRule's own class exposes a `.nth()` method for the
-// ordinal case, and passing an instance through works for the plain case
-// too, so there's one code path instead of two.
+// recur.byday holds RRULE-text-style day codes - plain ('MO') or
+// ordinal-prefixed ('2TU', '-1FR') for "nth weekday of the month".
 function rruleByweekdayFromByday(byday) {
     return byday.map(function (code) {
         let m = code.match(/^(-?\d+)?(SU|MO|TU|WE|TH|FR|SA)$/);
@@ -92,22 +76,17 @@ function rruleOptionsFor(recur, allDay) {
     return options;
 }
 
-// The occurrence immediately before `date` (exclusive), ignoring
-// count/until/exdates - used only to find a truncation boundary for
-// "this and following" splits, where the original series' own bounds
-// don't matter (a fresh boundary is being computed specifically to
-// replace them). Returns null if `date` is the series' first occurrence
-// (nothing comes before it) - the caller uses that to remove the
-// original series outright instead of leaving a degenerate rule.
+// Occurrence immediately before `date`, ignoring count/until/exdates -
+// the truncation boundary for "this and following" splits. Null if
+// `date` is the series' first occurrence.
 function previousOccurrenceBoundary(recur, allDay, date) {
     let rr = new rrule.RRule(rruleOptionsFor(recur, allDay));
     let result = rr.before(toFakeUtc(date), false);
     return result ? fromFakeUtc(result) : null;
 }
 
-// How many occurrences of the base pattern (ignoring count/until/exdates,
-// same reasoning as previousOccurrenceBoundary) fall before targetDate -
-// used only to shrink a remaining COUNT when splitting a series.
+// How many occurrences fall before targetDate - used to shrink a
+// remaining COUNT when splitting a series.
 function countOccurrencesBefore(recur, allDay, targetDate) {
     let rr = new rrule.RRule(rruleOptionsFor(recur, allDay));
     let fakeTarget = toFakeUtc(targetDate).getTime();
@@ -126,12 +105,10 @@ function buildRRuleSet(recur, allDay) {
     return set;
 }
 
-// Nearest occurrence to referenceDate, clamped to count/until and nudged
-// off any exdate (all handled natively by RRuleSet). Compares against the
-// start of referenceDate's day, not its exact time - otherwise a daily
-// event's occurrence for today looks "already past" once its time-of-day
-// has elapsed, and this skips ahead to tomorrow instead of the occurrence
-// actually shown in the grid today.
+// Nearest occurrence to referenceDate, clamped to count/until/exdates.
+// Compares against the start of referenceDate's day, not its exact time,
+// so today's occurrence doesn't look "already past" once its time has
+// elapsed.
 function nearestRecurOccurrenceDate(recur, allDay, referenceDate) {
     let dayStart = toFakeUtc(new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate()));
     let set = buildRRuleSet(recur, allDay);
@@ -140,9 +117,7 @@ function nearestRecurOccurrenceDate(recur, allDay, referenceDate) {
 }
 
 // RFC5545 requires UNTIL's precision to match DTSTART's - a date-only
-// UNTIL on a timed series would exclude that day's own occurrence, since
-// its time is always later than midnight. Carry the series' own
-// time-of-day forward so the boundary occurrence is correctly included.
+// UNTIL on a timed series would exclude that day's own occurrence.
 function formatUntil(dateOnlyStr, dtstartStr, allDay) {
     if (allDay || !dateOnlyStr) return dateOnlyStr;
     let time = dtstartStr.includes('T') ? dtstartStr.split('T')[1] : '23:59';
@@ -164,18 +139,15 @@ let theme = url.searchParams.get('theme');
 let isDarkMode = theme === 'dark-mode';
 if (isDarkMode) document.documentElement.setAttribute('data-color-scheme', 'dark');
 
-// Fixed palette, not free-form color picking - avoids a user landing on
-// something unreadable against white event text.
+// Same signal as the .calendar-menu-button fix in calendar.css - turns
+// off the double-click-to-edit shortcut on touch devices.
+let isTouchDevice = window.matchMedia('(hover: none)').matches;
+
+// Fixed palette, not free-form color picking.
 let CALENDAR_COLORS = ['#3788d8', '#8e24aa', '#0b8043', '#e67c73', '#f4511e', '#e53935'];
 
-// Index-matched to CALENDAR_COLORS - the same colors saturated/lightened
-// for legibility against a dark background, since colors picked to read
-// well on white (the swatch/checkbox identity, stored in `cal.color`)
-// tend to look muddy or low-contrast once the surrounding UI goes dark.
-// Only ever used for *display* (events, checkboxes, swatch previews);
-// `cal.color` itself always stays the light-mode identity value so
-// swatch-selection matching and saved data stay stable regardless of
-// which mode was active when a calendar was created or edited.
+// Index-matched to CALENDAR_COLORS, for legibility on a dark background -
+// display only, `cal.color` itself always stays the light-mode value.
 let CALENDAR_COLORS_DARK = ['#60a5fa', '#c084fc', '#4ade80', '#fca5a5', '#fb923c', '#f87171'];
 
 function displayColor(hex) {
@@ -184,12 +156,12 @@ function displayColor(hex) {
     return idx >= 0 ? CALENDAR_COLORS_DARK[idx] : hex;
 }
 
-// `primary: true` marks the one calendar that can never be deleted - can
-// be renamed or recolored, just not removed, since there always has to
-// be somewhere for events to land.
+// `primary: true` can't be deleted. `readOnly: true` marks a calendar
+// shared *with* you - see isCalendarWritable().
 let mockCalendars = [
     { id: 'cal-personal', name: 'Personal', color: CALENDAR_COLORS[0], visible: true, primary: true },
-    { id: 'cal-work', name: 'Work', color: CALENDAR_COLORS[1], visible: true }
+    { id: 'cal-work', name: 'Work', color: CALENDAR_COLORS[1], visible: true },
+    { id: 'cal-team', name: 'Team events', color: CALENDAR_COLORS[2], visible: true, readOnly: true }
 ];
 
 let mockEvents = [
@@ -234,6 +206,15 @@ let mockEvents = [
                 dtstart: toDateInputValue(gymStart) + 'T' + toTimeInputValue(gymStart), exdates: []
             }
         }
+    },
+    {
+        id: 'mock-5',
+        title: 'All-hands',
+        start: mockDate(2, 14, 0),
+        end: mockDate(2, 15, 0),
+        allDay: false,
+        color: displayColor(CALENDAR_COLORS[2]),
+        extendedProps: { location: '', description: '', status: 'active', recur: null, calendarId: 'cal-team' }
     }
 ];
 
@@ -383,11 +364,7 @@ function updateRepeatVisibility() {
     repeatCountRow.style.display = (repeating && endMode === 'count') ? '' : 'none';
     repeatWeekdayRow.style.display = (freq === 'weekly') ? '' : 'none';
     repeatMonthlyModeInput.style.display = (freq === 'monthly') ? '' : 'none';
-    // Nothing checked yet (a fresh event, or freq just switched to
-    // weekly) defaults to the form's own start-date weekday - editing an
-    // existing weekly series already has real selections by this point
-    // (set in populateRecurForm before it calls this), so this is a
-    // no-op there.
+    // Nothing checked yet defaults to the form's start-date weekday.
     if (freq === 'weekly' && !selectedWeekdays().length) setSelectedWeekdays([weekdayCodeOf(formStartDate())]);
     if (freq === 'monthly') updateMonthlyModeLabels();
 }
@@ -430,14 +407,9 @@ function nextEventId() {
     return 'evt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 }
 
-// Whole-series editing: the form always shows the SERIES' true original
-// start/end, not whichever occurrence was clicked to open it - otherwise
-// saving without touching the date fields would silently shift the entire
-// series to start from that occurrence. The series' real dtstart is kept
-// in extendedProps.recur.dtstart (our own copy, since FullCalendar's Event
-// object only exposes the clicked occurrence's own start/end, not the rule
-// that generated it). Occurrence duration is constant across a series, so
-// the clicked occurrence's own (end - start) is a safe stand-in for it.
+// Whole-series editing shows the SERIES' true original start/end, not
+// whichever occurrence was clicked - otherwise saving would shift the
+// whole series. Real dtstart lives in extendedProps.recur.dtstart.
 function seriesFormRange(ev, recur, allDay) {
     let occurrenceDurationMs = (ev.end || ev.start).getTime() - ev.start.getTime();
     let seriesStart = allDay ? new Date(recur.dtstart + 'T00:00') : new Date(recur.dtstart);
@@ -445,10 +417,8 @@ function seriesFormRange(ev, recur, allDay) {
     return { start: seriesStart, end: toFormEnd(seriesEndExclusive, allDay) };
 }
 
-// Populating the form for "this and following": shown starting from the
-// clicked occurrence (this becomes a new sub-series), with the remaining
-// occurrence count reduced by however many already happened before it -
-// otherwise the form would default to showing the ORIGINAL total count.
+// "This and following": remaining count reduced by occurrences already
+// past, so the form doesn't show the original total.
 function adjustRecurForFollowing(ev, masterRecur, allDay) {
     let recur = Object.assign({}, masterRecur);
     if (recur.end === 'count' && recur.count) {
@@ -479,10 +449,8 @@ function buildRecurringEventPayload(id, title, allDay, extra, recur, durationMs)
         title: title,
         allDay: allDay,
         rrule: rrule,
-        // the plugin's own duration refiner mishandles a bare number for
-        // recurring events (verified empirically - results in end == start,
-        // invisible in timeGrid views); the {milliseconds: N} object form
-        // works correctly, so wrap it rather than pass the number directly
+        // bare-number duration silently produces end == start on a
+        // recurring event - object form works correctly (see README)
         duration: { milliseconds: durationMs },
         color: color,
         extendedProps: Object.assign({ recur: recur }, extra)
@@ -505,12 +473,6 @@ function buildPlainEventPayload(id, title, allDay, start, end, extra) {
 }
 
 // --- .ics (RFC 5545) export/import ---
-// Verified against the actual RFC 5545 spec text, not memory, for the
-// details most likely to break real-world portability: TEXT escaping
-// (section 3.3.11), line folding (section 3.1), and - critically - that
-// UNTIL must be floating local time with no "Z" when DTSTART is floating
-// local time (section 3.3.10). Getting that last one wrong would silently
-// break every recurring event's export despite looking fine in our own UI.
 
 function escapeIcsText(str) {
     return String(str)
@@ -553,9 +515,7 @@ function icsDtLine(name, date, allDay) {
     return allDay ? (name + ';VALUE=DATE:' + icsDateStamp(date)) : (name + ':' + icsDateTimeStamp(date));
 }
 
-// Converts our internal dash/colon date strings ("2026-08-15" or
-// "2026-08-15T07:00") to RFC 5545's compact form ("20260815" /
-// "20260815T070000").
+// "2026-08-15"/"2026-08-15T07:00" to RFC 5545's compact form.
 function toIcsCompact(dashColonStr, allDay) {
     if (allDay) return dashColonStr.replace(/-/g, '');
     let parts = dashColonStr.split('T');
@@ -566,9 +526,6 @@ function recurToIcsRRuleLine(recur, allDay) {
     let freqMap = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
     let parts = ['FREQ=' + freqMap[recur.freq]];
     if (recur.interval > 1) parts.push('INTERVAL=' + recur.interval);
-    // recur.byday is already RRULE-text shape (plain 'MO' or ordinal
-    // '2TU'/'-1FR') - see rruleByweekdayFromByday()'s own comment - so it
-    // joins directly, no translation needed here.
     if (recur.byday && recur.byday.length) parts.push('BYDAY=' + recur.byday.join(','));
     if (recur.end === 'count' && recur.count) {
         parts.push('COUNT=' + recur.count);
@@ -584,35 +541,23 @@ function recurToIcsExdateLine(recur, allDay) {
     return (allDay ? 'EXDATE;VALUE=DATE:' : 'EXDATE:') + values.join(',');
 }
 
-// Inverse of the `UID:<id>@peergos.org` export format below - lets a
-// re-imported file we exported ourselves resolve back to the same event
-// id, which is what makes duplicate detection on import possible at all.
-// An externally-sourced UID (any other shape) is used as-is; FullCalendar
-// ids are opaque strings, so there's nothing to unpack for those.
+// Lets a re-imported file we exported ourselves resolve to the same
+// event id, for duplicate detection on import.
 let PEERGOS_UID_SUFFIX = '@peergos.org';
 
 function idFromIcsUid(uid) {
     return uid.endsWith(PEERGOS_UID_SUFFIX) ? uid.slice(0, -PEERGOS_UID_SUFFIX.length) : uid;
 }
 
-// Only ids we minted ourselves (nextEventId()'s own "evt-<ts>-<rand>"
-// shape) get a Peergos UID - RFC 5545's UID is meant to be a stable
-// identity for that event across every system it passes through, not
-// something to rewrite just because it was imported here. Re-exporting a
-// foreign event keeps its original UID untouched, so re-importing that
-// file back into its source app is still recognized as the same event
-// rather than a new duplicate.
+// Only ids we minted ourselves get a Peergos UID - a foreign UID stays
+// untouched on re-export.
 function isNativeEventId(id) {
     return /^evt-\d+-[a-z0-9]+$/.test(id);
 }
 
-// A recurring event with no occurrence in the currently rendered date
-// range has ev.start === null on its EventApi (same quirk documented for
-// getSearchableEvents() above) - duration can't be derived from start/end
-// in that case. Every recurring event this app creates always has a
-// `{ milliseconds: N }` duration (buildRecurringEventPayload never uses
-// years/months/days), so reading it straight off the internal event-store
-// def is exact, not an approximation.
+// A recurring event with no occurrence in the current range has
+// ev.start === null, so duration can't be derived from start/end -
+// read it off the event-store def instead.
 function recurringDurationMs(eventId) {
     let defs = calendar.getCurrentData().eventStore.defs;
     let key = Object.keys(defs).find(function (k) { return defs[k].publicId === eventId; });
@@ -670,9 +615,8 @@ function exportEventAsIcs(ev) {
     downloadIcsFile(icsFileNameFor(ev.title), eventToIcsLines(ev));
 }
 
-// mailto: (RFC 6068) can only prefill subject/body text, never an
-// attachment - so this sends a plain-text summary rather than the .ics
-// file itself, reusing the same formatting the popover already shows.
+// mailto: can't carry an attachment - sends a plain-text summary instead
+// of the .ics file.
 function emailEventBody(ev) {
     let lines = [formatPopoverTime(ev)];
     if (ev.extendedProps.recur) lines.push(describeRecur(ev.extendedProps.recur));
@@ -688,11 +632,8 @@ function emailEventAsMailto(ev) {
     a.click();
 }
 
-// Walks the event store's *defs* rather than calendar.getEvents(), same
-// reasoning as getSearchableEvents() above - a recurring series with no
-// occurrence in the currently rendered view still has a def, and would
-// otherwise vanish from the export entirely depending on which month
-// happens to be on screen when you click Export.
+// Walks event-store defs, not calendar.getEvents() - a recurring series
+// with no occurrence in the current view still has a def.
 function exportCalendarAsIcs(calendarId) {
     let cal = getCalendarById(calendarId);
     if (!cal) return;
@@ -737,10 +678,8 @@ function parseIcsPropertyLine(line) {
     return { name: headParts[0].toUpperCase(), params: params, value: value };
 }
 
-// TZID-qualified values (a named zone, not floating/UTC) are read as
-// floating local time - i.e. the wall-clock numbers are kept but the zone
-// itself isn't converted. Full IANA timezone conversion is a much bigger
-// undertaking than this pass covers; documented as a known limitation.
+// TZID-qualified values are read as floating local time - no IANA
+// timezone conversion (known limitation).
 function parseIcsDateValue(value, params) {
     let m = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
     if (!m) return null;
@@ -765,13 +704,9 @@ function parseIcsRRuleValue(value) {
 
     let recur = { freq: freq, interval: props.INTERVAL ? parseInt(props.INTERVAL, 10) : 1, end: 'never', until: null, count: null, exdates: [] };
 
-    // Two BYDAY shapes match what this app's UI can express: any number
-    // of plain weekday codes on a WEEKLY series ("every Mon/Wed/Fri"), or
-    // exactly one ordinal-prefixed code on a MONTHLY series ("the 2nd
-    // Tuesday"). Anything else - BYMONTHDAY/BYMONTH/BYYEARDAY/BYWEEKNO/
-    // BYSETPOS, mixed/multiple ordinals, BYDAY on a DAILY/YEARLY series -
-    // isn't representable by the UI, so it's dropped with a warning
-    // rather than silently discarded.
+    // Only two BYDAY shapes are representable by the UI: plain weekday
+    // codes on WEEKLY, or one ordinal code on MONTHLY. Anything else
+    // (BYMONTHDAY/BYMONTH/etc, mixed ordinals) is dropped with a warning.
     let codes = props.BYDAY ? props.BYDAY.split(',') : [];
     let isPlainCode = function (c) { return /^(SU|MO|TU|WE|TH|FR|SA)$/.test(c); };
     let isOrdinalCode = function (c) { return /^-?\d+(SU|MO|TU|WE|TH|FR|SA)$/.test(c); };
@@ -852,9 +787,7 @@ function parseIcsVevent(rawLines) {
     return buildPlainEventPayload(id, title, allDay, start, end, extra);
 }
 
-// `failed` counts VEVENT blocks that didn't produce a usable event (e.g.
-// missing/unparseable DTSTART) - parseIcsVevent() returning null was
-// previously a silent drop with no way for the caller to report it.
+// `failed` counts VEVENT blocks that didn't produce a usable event.
 function parseIcsFile(text) {
     let lines = unfoldIcsLines(text);
     let events = [];
@@ -888,12 +821,9 @@ function excludeOccurrenceFromMaster(master) {
     calendar.addEvent(payload);
 }
 
-// Shared by "delete this and following" and "edit this and following" (the
-// latter also adds a new continuation sub-series starting at this point).
-// Ends the original series the occurrence immediately before the split
-// point. If the split point IS the series' first occurrence, nothing of
-// the original series remains before it, so it's just removed outright
-// rather than left as a degenerate until-before-dtstart rule.
+// Shared by "delete this and following" and "edit this and following".
+// Ends the series at the occurrence before the split point, or removes
+// it outright if the split point is the first occurrence.
 function truncateMasterSeries(master) {
     let masterRecur = Object.assign({}, master.extendedProps.recur);
     let untilBoundary = previousOccurrenceBoundary(masterRecur, master.allDay, master.start);
@@ -935,9 +865,8 @@ function formatPopoverTime(ev) {
     return dateFmt.format(ev.start) + ' · ' + timeFmt.format(ev.start) + ' – ' + timeFmt.format(ev.end || ev.start);
 }
 
-// Finds an event's current DOM element by id - eventDidMount (below)
-// stamps every rendered event with data-search-event-id, not just for
-// search.
+// Finds an event's current DOM element by id (data-search-event-id, set
+// in eventDidMount below).
 function findEventAnchorEl(id) {
     return document.querySelector('[data-search-event-id="' + CSS.escape(id) + '"]');
 }
@@ -947,9 +876,7 @@ function positionPopover(anchorEl) {
     let popRect = popover.getBoundingClientRect();
     let left = Math.min(anchorRect.left, window.innerWidth - popRect.width - 8);
     left = Math.max(8, left);
-    // Prefer below; flip above only if below doesn't fit and above does
-    // fit without clamping - clamping "above" on a short window would
-    // otherwise slide the popover back down over the anchor it describes.
+    // Prefer below; flip above only if below doesn't fit and above does.
     let below = anchorRect.bottom + 8;
     let fitsBelow = below + popRect.height <= window.innerHeight - 8;
     let above = anchorRect.top - popRect.height - 8;
@@ -976,20 +903,16 @@ function showEventPopover(ev, anchorEl) {
     popoverDescriptionRow.style.display = description ? '' : 'none';
     if (description) popoverDescription.textContent = description;
 
-    popoverActions.style.display = isWritable ? '' : 'none';
+    let writable = isCalendarWritable(ev.extendedProps.calendarId);
+    popoverActions.style.display = writable ? '' : 'none';
+    // See .event-popover.has-actions in calendar.css
+    popover.classList.toggle('has-actions', writable);
 
     anchorEl.classList.add('fc-event-selected');
     popover.classList.add('open');
     positionPopover(anchorEl);
-    // Re-position once more shortly after - FullCalendar's day-grid
-    // row-height pass can still settle the anchor into its final position
-    // after this synchronous call (a plain setTimeout observes it; nested
-    // requestAnimationFrame calls don't, at least in this environment).
-    // Prefers the original anchorEl if still attached, since it's the
-    // exact segment/occurrence clicked - a multi-day event's row segments
-    // and a recurring series' occurrences all share the same
-    // data-search-event-id, so an id-based re-lookup alone would always
-    // land on the first one rather than whichever was actually clicked.
+    // Re-position shortly after - FullCalendar's own row-height pass can
+    // still settle the anchor after this synchronous call.
     setTimeout(function () {
         if (!popover.classList.contains('open')) return;
         positionPopover(anchorEl.isConnected ? anchorEl : (findEventAnchorEl(ev.id) || anchorEl));
@@ -1003,17 +926,9 @@ function hideEventPopover() {
     popover.classList.remove('open');
 }
 
-// Client-side only (no backend search API yet) - kept behind this one
-// function so swapping to a real endpoint later is a data-source change,
-// not a UI rewrite. Walks
-// the event store's defs rather than calendar.getEvents(), which for a
-// recurring series only returns occurrences within the currently
-// rendered range - defs keep a series searchable from any month.
-// getEventById() on a def with no active instance still returns a full
-// EventApi, just with .start === null, hence nearestRecurOccurrenceDate()
-// below. Requires MIN_SEARCH_QUERY_LENGTH chars, since matching
-// title/location/description means a 1-char query matches almost
-// everything through some field or other.
+// Client-side only, behind one function so a real backend API can swap
+// in later. Walks event-store defs, not calendar.getEvents(), so a
+// recurring series stays searchable from any month.
 let MIN_SEARCH_QUERY_LENGTH = 2;
 
 function getSearchableEvents(query) {
@@ -1108,9 +1023,8 @@ function renderSearchResults(query) {
 
         item.appendChild(titleRow);
         item.appendChild(metaRow);
-        // Without this, the click also reaches the document-level "click
-        // outside closes popover" listener after jumpToSearchResult() has
-        // already opened it, closing it again in the same event.
+        // Otherwise the "click outside closes popover" listener closes
+        // the popover jumpToSearchResult() just opened, same event.
         item.addEventListener('click', function (e) {
             e.stopPropagation();
             jumpToSearchResult(ev, match.jumpDate);
@@ -1119,30 +1033,20 @@ function renderSearchResults(query) {
     });
 }
 
-// Navigates then opens the event's popover, rather than a transient
-// highlight. `ev` can be a recurring series' master with no real instance
-// (.start === null)
-// if it wasn't previously rendered, so re-resolves to a real instance -
-// whichever visible occurrence is closest to jumpDate, since several can
-// share the same id - now that gotoDate() has made one exist.
+// Navigates then opens the event's popover, then re-resolves to the
+// nearest real instance (ev may be a recurring master with .start ===
+// null before gotoDate() makes an occurrence exist).
 function jumpToSearchResult(ev, jumpDate) {
     closeSearchResults();
-    // A hidden calendar's events are rendered with display:'none' (see
-    // applyCalendarVisibility) - not just visually hidden, not in the DOM
-    // at all - so findEventAnchorEl() below would find nothing to open a
-    // popover on. Re-enabling visibility here means finding a result
-    // implies wanting to see it, not silently ignoring the click.
+    // A hidden calendar's events aren't in the DOM at all - re-enable so
+    // findEventAnchorEl() below has something to find.
     if (!isCalendarVisible(ev.extendedProps.calendarId)) {
         getCalendarById(ev.extendedProps.calendarId).visible = true;
         applyCalendarVisibility();
         renderCalendarList();
     }
-    // Same slide transition as swipe/Previous/Next/Today, and same
-    // "only if it actually changes the view" guard as Today - a search
-    // result already in the visible range shouldn't animate just because
-    // gotoDate() was technically called. Synchronous here (unlike the
-    // button-wrapping cases above), since gotoDate() is called directly
-    // by this function rather than by a separate listener.
+    // Same slide transition as swipe/Previous/Next/Today - only if the
+    // view actually changes.
     let viewChanging = jumpDate < calendar.view.activeStart || jumpDate >= calendar.view.activeEnd;
     if (viewChanging) freezeForViewTransition(jumpDate < calendar.view.activeStart ? 'prev' : 'next');
     calendar.gotoDate(jumpDate);
@@ -1172,15 +1076,20 @@ function getCalendarById(id) {
     return mockCalendars.find(function (c) { return c.id === id; });
 }
 
+// Combines the whole-app `isWritable` flag with a calendar's own
+// `readOnly` flag - both must allow writing.
+function isCalendarWritable(calendarId) {
+    let cal = getCalendarById(calendarId);
+    return isWritable && (!cal || !cal.readOnly);
+}
+
 function isCalendarVisible(calendarId) {
     let cal = getCalendarById(calendarId);
     return !cal || cal.visible;
 }
 
-// Uses FullCalendar's own per-event `display` property rather than CSS,
-// so a hidden calendar's events are properly excluded from FullCalendar's
-// own layout (month view's "+N more" count, row heights) instead of just
-// being painted over while still occupying space.
+// Uses FullCalendar's own per-event `display` property, not CSS, so
+// hidden events are excluded from layout (e.g. "+N more" counts).
 function applyCalendarVisibility() {
     calendar.getEvents().forEach(function (ev) {
         ev.setProp('display', isCalendarVisible(ev.extendedProps.calendarId) ? 'auto' : 'none');
@@ -1198,6 +1107,9 @@ function applyCalendarColor(calendarId) {
 function renderCalendarSelectOptions(selectedId) {
     calendarSelectInput.innerHTML = '';
     mockCalendars.forEach(function (cal) {
+        // Read-only calendars aren't a valid save target, except the
+        // event's own current one (so its name still shows while editing).
+        if (cal.readOnly && cal.id !== selectedId) return;
         let option = document.createElement('option');
         option.value = cal.id;
         option.textContent = cal.name;
@@ -1210,12 +1122,11 @@ function closeAllCalendarMenus() {
     document.querySelectorAll('.calendar-menu.open').forEach(function (menu) { menu.classList.remove('open'); });
 }
 
-// The primary calendar's own Delete option isn't even rendered (see
-// renderCalendarList() below), so this check is a defensive backstop,
-// not the primary way that's enforced.
+// Defensive backstop - Delete isn't even rendered for these (see
+// renderCalendarList()).
 function deleteCalendar(id) {
     let cal = getCalendarById(id);
-    if (!cal || cal.primary) return;
+    if (!cal || cal.primary || cal.readOnly) return;
     openConfirmModal('Delete "' + cal.name + '"? All its events will be permanently deleted.', function () {
         calendar.getEvents().forEach(function (ev) {
             if (ev.extendedProps.calendarId === id) ev.remove();
@@ -1249,10 +1160,16 @@ function renderCalendarList() {
         item.appendChild(checkbox);
         item.appendChild(name);
 
-        // The menu itself is always shown - Export is read-only (same
-        // reasoning as Search staying available without write access),
-        // so it can't live inside an isWritable-only menu. Edit/Delete
-        // (real mutations) are added below only when isWritable.
+        if (cal.readOnly) {
+            let badge = document.createElement('span');
+            badge.className = 'calendar-readonly-badge';
+            badge.title = 'Shared with you (read-only)';
+            badge.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6"/><path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0"/><path d="M8 11v-4a4 4 0 1 1 8 0v4"/></svg>';
+            item.appendChild(badge);
+        }
+
+        // Menu is always shown (Export is read-only); Edit/Share/Delete
+        // are added below only when this specific calendar is writable.
         let menuButton = document.createElement('button');
         menuButton.type = 'button';
         menuButton.className = 'calendar-menu-button';
@@ -1263,7 +1180,7 @@ function renderCalendarList() {
         let menu = document.createElement('div');
         menu.className = 'calendar-menu';
 
-        if (isWritable) {
+        if (isCalendarWritable(cal.id)) {
             let editBtn = document.createElement('button');
             editBtn.type = 'button';
             editBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg> Edit';
@@ -1274,10 +1191,9 @@ function renderCalendarList() {
             menu.appendChild(editBtn);
         }
 
-        // The primary calendar is your own default calendar, not shared
-        // like the others - no Share option offered for it at all, same
-        // reasoning as Delete below (no option, not a blocked action).
-        if (isWritable && !cal.primary) {
+        // No Share for the primary calendar (not shared) or a read-only
+        // one (can't re-share access you don't own).
+        if (isCalendarWritable(cal.id) && !cal.primary) {
             let shareBtn = document.createElement('button');
             shareBtn.type = 'button';
             shareBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M15 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M15 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M8.7 10.7l6.6 -3.4"/><path d="M8.7 13.3l6.6 3.4"/></svg> Share';
@@ -1297,10 +1213,7 @@ function renderCalendarList() {
         });
         menu.appendChild(exportBtn);
 
-        // No Delete option offered for the primary calendar at all,
-        // rather than offering it and then blocking the action after
-        // the fact.
-        if (isWritable && !cal.primary) {
+        if (isCalendarWritable(cal.id) && !cal.primary) {
             let deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
             deleteBtn.className = 'danger';
@@ -1337,8 +1250,6 @@ function renderColorSwatches(selectedColor) {
         swatch.style.backgroundColor = displayColor(color);
         swatch.dataset.color = color;
         swatch.setAttribute('aria-label', color);
-        // A checkmark marks the selected swatch, not just a border - a
-        // border alone is easy to miss against some of these colors.
         swatch.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5l10 -10"/></svg>';
         swatch.addEventListener('click', function () {
             calendarColorSwatches.querySelectorAll('.color-swatch').forEach(function (s) { s.classList.remove('selected'); });
@@ -1363,10 +1274,7 @@ function closeCalendarModal() {
     editingCalendarId = null;
 }
 
-// Generic confirm dialog - currently only used for deleting a calendar,
-// but not named/scoped to that specifically in case another destructive
-// action needs the same "are you sure?" pattern later, matching this
-// app's own visual style instead of the browser's native confirm().
+// Generic confirm dialog, not scoped to calendar deletion specifically.
 let pendingConfirmAction = null;
 
 function openConfirmModal(message, onConfirm) {
@@ -1380,10 +1288,8 @@ function closeConfirmModal() {
     pendingConfirmAction = null;
 }
 
-// Purely informational (no onConfirm/Cancel), so it gets its own modal
-// rather than reusing openConfirmModal() above - that one's OK button is
-// permanently styled/labeled for a destructive action, which doesn't fit
-// a post-import summary.
+// Purely informational (no onConfirm/Cancel) - openConfirmModal()'s OK
+// button is styled for a destructive action, doesn't fit here.
 function openImportSummaryModal(message) {
     importSummaryMessage.textContent = message;
     importSummaryModalBackdrop.classList.add('open');
@@ -1393,13 +1299,8 @@ function closeImportSummaryModal() {
     importSummaryModalBackdrop.classList.remove('open');
 }
 
-// Mock sharing state, keyed by a synthetic 'event:<id>'/'calendar:<id>'
-// string rather than stored on the event/calendar objects themselves -
-// keeps this behind one lookup, same reasoning as getSearchableEvents(),
-// so swapping in the real sharing API later touches this function only.
-// Read-only per-user sharing and a secret link only, deliberately no
-// read-write option - sharing a calendar/event never lets someone else
-// edit or delete your events.
+// Mock sharing state, keyed by 'event:<id>'/'calendar:<id>'. Read-only
+// per-user sharing and a secret link only - no write-access option.
 let mockShares = {};
 let shareModalKey = null;
 
@@ -1442,13 +1343,8 @@ function renderShareUserList() {
 function openShareModal(key, displayName) {
     shareModalKey = key;
     let kind = key.indexOf('calendar:') === 0 ? 'calendar' : 'event';
-    // A long event/calendar name shouldn't be able to wrap the heading
-    // to a second line or push the modal wider - only the name itself
-    // truncates with an ellipsis, "Share"/kind around it always stay
-    // fully visible. Every part is a real element, not a bare text node
-    // (those don't reliably keep their whitespace or stay on one line
-    // once the container is display:flex) or innerHTML (displayName is
-    // arbitrary user-entered text).
+    // Real elements, not innerHTML (displayName is user-entered text) -
+    // only the name itself truncates, "Share"/kind stay fully visible.
     shareModalHeading.innerHTML = '';
     let prefix = document.createElement('span');
     prefix.className = 'share-modal-fixed';
@@ -1490,12 +1386,17 @@ function openModal(mode, opts) {
     editScope = opts.scope || 'all';
     modalHeading.textContent = mode === 'edit' ? 'Edit event' : (opts.prefill ? 'Duplicate event' : 'New event');
 
-    editableFields.forEach(el => el.disabled = !isWritable);
-    saveButton.style.display = isWritable ? '' : 'none';
-    saveButton.disabled = !isWritable;
-    deleteButton.style.display = (isWritable && mode === 'edit') ? '' : 'none';
-    deleteButton.disabled = !isWritable;
-    cancelButton.textContent = isWritable ? 'Cancel' : 'Close';
+    // Per-calendar, not just isWritable - double-click bypasses the
+    // popover's own gating and opens straight into this modal.
+    let targetCalendarId = mode === 'edit' ? opts.event.extendedProps.calendarId
+        : ((opts.prefill && opts.prefill.calendarId) || mockCalendars[0].id);
+    let writable = isCalendarWritable(targetCalendarId);
+    editableFields.forEach(el => el.disabled = !writable);
+    saveButton.style.display = writable ? '' : 'none';
+    saveButton.disabled = !writable;
+    deleteButton.style.display = (writable && mode === 'edit') ? '' : 'none';
+    deleteButton.disabled = !writable;
+    cancelButton.textContent = writable ? 'Cancel' : 'Close';
 
     let start, end, allDay, recur;
     if (mode === 'edit') {
@@ -1529,10 +1430,8 @@ function openModal(mode, opts) {
         titleInput.value = prefill.title || '';
         allDay = opts.allDay || false;
         start = opts.date;
-        // opts.endDate is exclusive for an all-day range, same as an
-        // edited event's ev.end - needs the same toFormEnd() conversion
-        // edit-mode applies below, or a single-day click shows (and saves)
-        // as two days.
+        // opts.endDate is exclusive, same as ev.end - needs the same
+        // toFormEnd() conversion.
         end = toFormEnd(opts.endDate, allDay);
         locationInput.value = prefill.location || '';
         statusInput.value = prefill.status || 'active';
@@ -1621,7 +1520,7 @@ popoverCloseButton.addEventListener('click', hideEventPopover);
 // Shared by the popover's Edit button and double-clicking an event
 // directly - both should go through the same recurring-scope prompt.
 function openEditFor(ev) {
-    if (isWritable && ev.extendedProps.recur) {
+    if (isCalendarWritable(ev.extendedProps.calendarId) && ev.extendedProps.recur) {
         openScopeModal(ev, 'edit');
     } else {
         openModal('edit', { event: ev, scope: 'all' });
@@ -1636,6 +1535,8 @@ popoverEditButton.addEventListener('click', function () {
 
 popoverDeleteButton.addEventListener('click', function () {
     let ev = popoverEvent;
+    // Defensive backstop - button is already absent when not writable.
+    if (!isCalendarWritable(ev.extendedProps.calendarId)) return;
     hideEventPopover();
     if (ev.extendedProps.recur) {
         openScopeModal(ev, 'delete');
@@ -1644,9 +1545,8 @@ popoverDeleteButton.addEventListener('click', function () {
     }
 });
 
-// Always duplicates just the clicked occurrence as a standalone
-// non-recurring event, even for a recurring series - no scope prompt
-// needed, since the result is never itself part of that series.
+// Duplicates just the clicked occurrence as a standalone non-recurring
+// event, even for a recurring series.
 popoverDuplicateButton.addEventListener('click', function () {
     let ev = popoverEvent;
     hideEventPopover();
@@ -1691,14 +1591,7 @@ overflowImportButton.addEventListener('click', function () {
 
 overflowMenuVersion.textContent = 'FullCalendar v' + FullCalendar.version;
 
-// Skips (rather than overwrites) an event whose id already exists -
-// safest default when we can't know whether the existing copy has local
-// edits the re-imported file doesn't know about. Only catches exact id
-// matches, which only happens for a file this app itself exported
-// (idFromIcsUid() above) or a repeat import of the same external file;
-// two different external sources describing "the same" event with
-// different UIDs still import as separate events, same as real calendar
-// apps.
+// Skips (rather than overwrites) an event whose id already exists.
 function formatImportSummary(imported, duplicates, failed) {
     if (imported === 0 && duplicates === 0 && failed === 0) return 'No events found in this file.';
     let parts = [imported === 1 ? 'Imported 1 event.' : 'Imported ' + imported + ' events.'];
@@ -1713,10 +1606,7 @@ icsFileInput.addEventListener('change', function () {
     let reader = new FileReader();
     reader.onload = function () {
         icsFileInput.value = '';
-        // A wrong-file-type pick (e.g. a renamed .txt/.jpg) would otherwise
-        // read as "0 events" - the same message an empty-but-valid calendar
-        // export gives - which is misleading about what actually went
-        // wrong. VCALENDAR is the one thing every RFC5545 file has.
+        // Otherwise a wrong-file-type pick reads as a misleading "0 events".
         if (reader.result.indexOf('BEGIN:VCALENDAR') === -1) {
             openImportSummaryModal("This doesn't look like a valid .ics calendar file.");
             return;
@@ -1742,11 +1632,8 @@ icsFileInput.addEventListener('change', function () {
     reader.readAsText(file);
 });
 
-// Always visible in the toolbar, not a click-to-open trigger - matches
-// YouTube's own search bar rather than this app's earlier command-palette
-// version. Clicking the search button itself just (re)focuses the input;
-// results already render live as you type, so there's nothing else for
-// it to submit.
+// Always visible, not a click-to-open trigger. Clicking the search
+// button just focuses the input - results already render live.
 searchButton.addEventListener('click', function () {
     searchInput.focus();
 });
@@ -1756,9 +1643,7 @@ searchInput.addEventListener('input', function () {
     renderSearchResults(searchInput.value);
 });
 
-// Re-opens the dropdown when refocusing an already-typed query (e.g.
-// after clicking away and back), rather than requiring the text to be
-// retyped to see results again.
+// Re-opens the dropdown when refocusing an already-typed query.
 searchInput.addEventListener('focus', function () {
     if (searchInput.value.trim()) renderSearchResults(searchInput.value);
 });
@@ -1768,11 +1653,8 @@ searchClearButton.addEventListener('click', function () {
     searchInput.focus();
 });
 
-// Below MOBILE_BREAKPOINT (matches calendar.css's own `@media (max-width:
-// 700px)`), the sidebar is an off-canvas drawer (`.open` + a dimming
-// backdrop); above it, it's a persistent column that just collapses to
-// zero width in place - same button, different meaning depending on how
-// much room there already is.
+// Below MOBILE_BREAKPOINT (matches calendar.css's `@media (max-width:
+// 700px)`), sidebar is an off-canvas drawer; above it, a collapsing column.
 let MOBILE_BREAKPOINT = 700;
 
 sidebarToggleButton.addEventListener('click', function () {
@@ -1880,15 +1762,9 @@ shareModalBackdrop.addEventListener('click', function (e) {
     if (e.target === shareModalBackdrop) closeShareModal();
 });
 
-// Closes an open calendar "..." menu on any click outside its own
-// buttons/trigger and the overflow menu's inert version line. A
-// calendar-list menu's own blank space is deliberately NOT exempted,
-// since it's tall enough to overlap the row below it and a click meant
-// for that row's kebab button would otherwise land on the open menu and
-// do nothing, leaving it stuck open - the version line has no such
-// row underneath it to protect. Capture phase, not bubble: eventClick's
-// own stopPropagation() (below) would otherwise hide clicks on events
-// from a bubble-phase listener here.
+// Closes an open calendar "..." menu on any click outside it. Capture
+// phase, not bubble: eventClick's stopPropagation() would otherwise hide
+// clicks on events from a bubble-phase listener here.
 document.addEventListener('click', function (e) {
     if (!e.target.closest('.calendar-menu button') && !e.target.closest('.calendar-menu-button') && !e.target.closest('#overflow-menu-button') && !e.target.closest('#overflow-menu-version')) {
         closeAllCalendarMenus();
@@ -1896,34 +1772,22 @@ document.addEventListener('click', function (e) {
 }, true);
 
 // Closes the search results dropdown on any click outside #search-bar.
-// Capture phase from the start this time, not bubble - the same
-// stopPropagation()-swallows-a-bubble-listener issue fixed twice above
-// would otherwise just resurface a third time here (e.g. clicking a
-// calendar kebab button while results are open).
+// Capture phase, same stopPropagation() reasoning as above.
 document.addEventListener('click', function (e) {
     if (!searchBar.contains(e.target)) closeSearchResults();
 }, true);
 
-// Clicking outside the popover closes it and still reaches whatever it
-// landed on - switching straight to a different event's popover in one
-// click. Capture phase, not bubble, same reason as the calendar-menu
-// closer above (just the other direction): a calendar kebab button's own
-// stopPropagation() otherwise leaves the popover stuck open. Capture
-// doesn't stop propagation itself, so eventClick still fires normally
-// afterward.
+// Clicking outside the popover closes it without swallowing the click,
+// so switching straight to a different event works in one click.
 document.addEventListener('click', function (e) {
     if (popover.classList.contains('open') && !popover.contains(e.target)) {
         hideEventPopover();
     }
 }, true);
 
-// The one exception: day-grid `select` (clicking empty space to create a
-// new event) - opening the create form as a side effect of dismissing a
-// popover reads as broken, so it's swallowed via mousedown/capture-phase
-// rather than passed through. Has to be mousedown, not click: select is
-// driven by mousedown/mouseup and has already run by the time a
-// click-based listener could react. Excludes clicks on an actual event
-// so eventClick (which needs a real "click" event to fire) still works.
+// Exception: dismissing the popover shouldn't also create a new event
+// via the click underneath it. Mousedown, not click, since dateClick
+// fires on mousedown/mouseup before a click listener could react.
 document.addEventListener('mousedown', function (e) {
     if (!popover.classList.contains('open')) return;
     if (popover.contains(e.target)) return;
@@ -2000,22 +1864,15 @@ overflowImportButton.style.display = isWritable ? '' : 'none';
 addCalendarButton.style.display = isWritable ? '' : 'none';
 renderCalendarList();
 
-// eventClick fires on both clicks of a double-click, so the first
-// click's popover is deferred behind a short timer - a second click
-// arriving before it fires cancels the popover and opens edit instead.
+// eventClick fires on both clicks of a double-click - the first click's
+// popover is deferred behind a short timer, a second click cancels it
+// and opens edit instead. Desktop-only (see isTouchDevice below).
 let eventClickTimer = null;
 
-// Fixes Breezy's day-grid (Month/Year) event rows: no color indicator by
-// default (--fc-event-color is set correctly, confirmed via devtools,
-// but nothing in that render mode consumes it, unlike Week/Day and List
-// which both already work) and the time label right-aligned via
-// justify-content:space-between + order:1, rather than flush-left like
-// Classic. Idempotent and safe to call repeatedly on the same element -
-// re-run on every resize below, not just at mount, since Breezy's own
-// responsive logic rebuilds this content on resize (adding/removing the
-// time div depending on available width) without re-invoking
-// eventDidMount; a one-time fix at mount alone left dot/time/title order
-// scrambled after a couple of rotations.
+// Fixes Breezy's day-grid (Month/Year) event rows: no color dot by
+// default, and the time label right-aligned instead of flush-left.
+// Idempotent - re-run on every resize below, since Breezy rebuilds this
+// content on resize without re-firing eventDidMount.
 function fixDayGridEventLayout(el) {
     if (el.dataset.eventAllDay === '1') return;
     let wrapper = el.firstElementChild;
@@ -2034,12 +1891,8 @@ function fixDayGridEventLayout(el) {
     titleEl.style.order = '2';
     if (timeEl) {
         timeEl.style.order = '1';
-        // Space-based, not a fixed width cutoff: keep dot+time+title in
-        // that order whenever they actually fit the cell (matching the
-        // desktop/web layout), and only drop the time label if they'd
-        // overflow - so rotating a phone to landscape, or any width with
-        // enough room, shows it again instead of it staying hidden below
-        // some hardcoded breakpoint.
+        // Space-based, not a fixed breakpoint - only drop the time label
+        // if dot+time+title would actually overflow the cell.
         timeEl.style.display = wrapper.scrollWidth > wrapper.clientWidth ? 'none' : '';
     }
 }
@@ -2069,11 +1922,8 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
             fixDayGridEventLayout(info.el);
         }
     },
-    // dateClick, not selectable/select - fires on a plain click/tap only,
-    // with no drag mechanism at all (unlike select, which also handles
-    // dragging across cells to set a range). New events always get a
-    // default duration (1 hour timed, 1 day all-day) instead of a
-    // user-dragged one.
+    // dateClick, not selectable/select - plain click/tap only, no drag.
+    // New events get a default duration (1 hour timed, 1 day all-day).
     dateClick: function (info) {
         if (!isWritable) return;
         let endDate = info.allDay ? addDays(info.date, 1) : new Date(info.date.getTime() + 60 * 60 * 1000);
@@ -2081,6 +1931,10 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     },
     eventClick: function (info) {
         info.jsEvent.stopPropagation();
+        if (isTouchDevice) {
+            showEventPopover(info.event, info.el);
+            return;
+        }
         if (eventClickTimer) {
             clearTimeout(eventClickTimer);
             eventClickTimer = null;
@@ -2097,13 +1951,9 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
 calendar.render();
 applyCalendarVisibility();
 
-// Approximates a slide transition without diffing/keeping around
-// FullCalendar's old DOM (it just replaces #calendar's content in place,
-// there's nothing to cross-fade between two real snapshots): jump #calendar
-// to an offset position with the transition disabled, swap in the new
-// view while still offset, then re-enable the transition and animate back
-// to rest - the new content reads as sliding in from the swipe direction.
-// Shared by the swipe and Today-button features below.
+// Approximates a slide transition: jump #calendar to an offset position
+// with the transition disabled, swap in the new view while still offset,
+// then re-enable the transition and animate back to rest.
 function freezeForViewTransition(direction) {
     calendarEl.style.transition = 'none';
     calendarEl.style.opacity = '.4';
@@ -2117,15 +1967,8 @@ function settleViewTransition() {
     calendarEl.style.transform = 'translateX(0)';
 }
 
-// Swipe left/right to go to the next/previous view - horizontal
-// navigation only, nothing else (no drag-to-move, no vertical handling).
-// Only acts on touchend, never touchmove, and never calls preventDefault
-// - so it can't interfere with normal vertical scrolling in Week/Day/List
-// view. Doesn't coordinate with FullCalendar's own drag-to-create-event
-// handling (selectable: true): that requires a long press before a touch
-// drag registers (selectLongPressDelay), which isn't how events get
-// created on mobile anyway (tap a slot, not drag), so it's not worth the
-// extra complexity of protecting.
+// Swipe left/right to go to the next/previous view. touchend only, never
+// preventDefault, so it doesn't interfere with vertical scrolling.
 let touchStartX = null;
 let touchStartY = null;
 let SWIPE_MIN_DISTANCE = 50;
@@ -2148,24 +1991,11 @@ calendarEl.addEventListener('touchend', function (e) {
     settleViewTransition();
 }, { passive: true });
 
-// Same slide transition as swipe, for the toolbar's own Today/Previous/
-// Next buttons - Today only animates when it will actually change the
-// view (clicking it while today's already on screen is a no-op, no
-// reason to animate). Breezy hashes all of FullCalendar's own class
-// names (see the theme comment up top), so there's no stable
-// ".fc-today-button"/".fc-prev-button"/".fc-next-button" selector to
-// hook. Today is matched by button text ("Today", stable regardless of
-// view); Previous/Next are icon-only (no text), matched by their
-// aria-label instead - FullCalendar sets this to "Previous <Unit>"/
-// "Next <Unit>" (e.g. "Previous Week"), where <Unit> changes with the
-// current view, so only the prefix is checked. Capture phase, not
-// bubble: needs to freeze #calendar's position before FullCalendar's own
-// click handler (attached directly to the button, bubble phase)
-// re-renders the view, not after - the actual navigation is still
-// entirely FullCalendar's own default handling, this only wraps it.
-// settle is deferred a tick since, unlike the swipe case, the re-render
-// here happens in that separate listener, not synchronously inline in
-// this one.
+// Same slide transition as swipe, for Today/Previous/Next. Breezy hashes
+// FullCalendar's own class names, so Today is matched by button text and
+// Previous/Next by their aria-label prefix ("Previous <Unit>"/"Next
+// <Unit>"). Capture phase: needs to freeze #calendar before FullCalendar's
+// own bubble-phase click handler re-renders the view.
 calendarEl.addEventListener('click', function (e) {
     let btn = e.target.closest('button');
     if (!btn) return;
@@ -2185,11 +2015,8 @@ calendarEl.addEventListener('click', function (e) {
     setTimeout(settleViewTransition, 0);
 }, true);
 
-// Re-applies fixDayGridEventLayout() to every rendered day-grid event on
-// resize/rotation, not just at mount - see that function's own comment
-// for why a one-time fix isn't enough. Debounced since resize (and
-// especially orientation change, which fires a burst of them) can fire
-// many times in quick succession.
+// Re-applies fixDayGridEventLayout() on resize/rotation, not just at
+// mount. Debounced since resize can fire many times in quick succession.
 let dayGridLayoutFixTimer = null;
 window.addEventListener('resize', function () {
     clearTimeout(dayGridLayoutFixTimer);

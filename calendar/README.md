@@ -11,112 +11,58 @@ real Peergos storage (blocked on `READ_CALENDAR`/`WRITE_CALENDAR`, see Open
 items).
 
 - **Recurring events**: `DAILY`/`WEEKLY`/`MONTHLY`/`YEARLY`,
-  `INTERVAL`/`COUNT`/`UNTIL`, scoped edit/delete ("this event" / "this and
-  following" / "all events") via `EXDATE` and series-splitting. Weekly has
-  a day-of-week toggle (`BYDAY`, e.g. `MO,WE,FR`); monthly has "day N" vs.
-  "Nth weekday" (`BYDAY` with ordinal prefix, e.g. `2TU`, or `-1FR` for
-  "last"). `BYMONTHDAY`/`BYMONTH` have no standalone UI. Occurrence math
-  uses `rrule.RRuleSet`/`RRule`
-  directly (see `toFakeUtc`/`fromFakeUtc` in `calendar.js` — works around
-  `rrule`'s UTC-getter timezone bug).
-- **Interaction**: click opens a popover (delete/edit/duplicate, then
-  export/email) and outlines the clicked event on the grid (disambiguates
-  which exact occurrence on a busy day, since the popup's position alone
-  isn't always enough); double-click opens edit directly; clicking/tapping
-  an empty slot creates a new event there with a default duration (1 hour
-  timed, 1 day all-day) - see Architecture decisions for why it's a plain
-  click and not drag-select. Title/location are capped at 200 characters
-  in the create/edit form; on the grid, event titles truncate with an
-  ellipsis rather than overflowing the cell, and the popover's
-  title/location/description each clamp to 3 lines for the same reason
-  (covers imported `.ics` events too, which bypass the form's cap).
-- **Toolbar**: hamburger sidebar toggle + centered search + "⋯" overflow
-  menu (Import). Search matches title/location/description across all
-  months, 2-char minimum; each result shows a calendar-color dot and the
-  calendar's name; clicking a result on a currently-hidden calendar
-  re-enables that calendar instead of silently failing to open a popover
-  for an event that isn't rendered.
-- **`.ics` export/import**: RFC 5545. Export per-event or per-calendar.
-  Import is bulk with duplicate detection (by `UID`) and a post-import
-  summary. `BYDAY` round-trips for the two shapes the UI produces; other
-  `RRULE` parts (`BYMONTHDAY`, `BYMONTH`, unsupported `BYDAY` shapes, etc.)
-  simplify to plain `FREQ`+`INTERVAL` with a `console.warn`. `TZID` reads as
-  floating local time; `VALARM` is dropped (no reminder feature yet).
-- **Email an event**: `mailto:` with a plain-text summary in the body, not
-  the `.ics` file — `mailto:` can't carry attachments.
+  `INTERVAL`/`COUNT`/`UNTIL`, scoped edit/delete (this/following/all).
+  Weekly has a day-of-week toggle; monthly has "day N" vs. "Nth weekday".
+  `BYMONTHDAY`/`BYMONTH` have no UI.
+- **Interaction**: click for a popover (edit/delete/duplicate/export/
+  email/share), double-click for edit directly (desktop only), click/tap
+  an empty slot to create. Title/location capped at 1024 characters. Long
+  text truncates with an ellipsis on the grid, scrolls in the popover.
+- **Toolbar**: sidebar toggle, search (title/location/description,
+  2-char minimum), "⋯" overflow menu (Import).
+- **`.ics` export/import**: RFC 5545, per-event or per-calendar. Bulk
+  import with duplicate detection. Unsupported `RRULE` parts simplify to
+  plain `FREQ`+`INTERVAL`. `TZID` reads as floating local time; `VALARM`
+  is dropped.
+- **Email an event**: `mailto:` with a plain-text summary, not the `.ics`
+  file.
 - **Multiple calendars**: create/rename/delete/recolor, show/hide
-  filtering. Primary calendar can't be deleted. Each calendar's "⋮" menu
-  is always visible on a touch device (`@media (hover: none)`) - it was
-  hover-only before, which made it unreachable on mobile.
-- **Sharing**: an event (popover) or a non-primary calendar (sidebar menu)
-  can be shared with a specific username or via a secret link - read-only
-  only, deliberately no write-access option, since that would let someone
-  else edit or delete your events. Mock state only (`mockShares`, see
-  Open items); no share option for the primary calendar, matching Delete.
-- **Dark mode**: reads Peergos's `?theme=` param once at launch, sets
-  `data-color-scheme="dark"`. Reuses the vendored Breezy theme's own
-  `--fc-breezy-*` variables for this app's UI too, so one attribute flips
-  both. No live updates — requires relaunching the app.
-- **Navigation**: ISO week numbers, clickable to jump to Day/Week view;
-  `nowIndicator` for the current-time line; swipe left/right to go to the
-  next/previous view (touchend-only, horizontal-dominant gestures past a
-  50px threshold - doesn't touch vertical scrolling or FullCalendar's own
-  long-press drag-to-create). The toolbar's own Previous/Next/Today
-  buttons, and clicking a search result that jumps to a different view,
-  all get the same slide transition (Today and search only animate when
-  they actually change the view - already-visible is a no-op, nothing to
-  animate).
-
-Two Breezy-specific fixes in `fixDayGridEventLayout()` (`calendar.js`):
-Month/Year rows get a per-event color dot (missing by default) and are
-forced flush-left instead of Breezy's title-left/time-right layout;
-re-applied on every resize, not just at mount, since Breezy's own resize
-logic rebuilds this content without re-firing `eventDidMount`.
-
-Vendored-bundle gotcha: per-event `backgroundColor`/`borderColor`/
-`textColor` are silent no-ops in this build — use `color` instead.
+  filtering. Primary calendar can't be deleted.
+- **Sharing**: an event or non-primary calendar can be shared with a
+  username or via a secret link, read-only only. Mock state
+  (`mockShares`).
+- **Read-only calendars**: a calendar can be marked `readOnly`
+  (`isCalendarWritable()`), independent of the whole-app `isWritable`
+  flag - drops Edit/Share/Delete for it and its events.
+- **Dark mode**: reads Peergos's `?theme=` param once at launch.
+- **Navigation**: ISO week numbers, swipe/Previous/Next/Today/search all
+  share a slide transition.
 
 ## For maintainers
 
-Everything below this point is for whoever is developing this app, not
-for someone just running it - why things are built the way they are,
-the feature checklist, exact vendored sources/versions, and tracked
-blockers.
-
 ### Architecture decisions
 
-- **Sandboxed app, not built into `web-ui`** — an ordinary Peergos folder
-  (`peergos-app.json` + `/assets`), installed like any other app.
-- **FullCalendar 7.0.2**, Standard bundle (MIT) + `@fullcalendar/rrule`.
-- **Permissions: `READ_CALENDAR`/`WRITE_CALENDAR`** (declared in
-  `peergos-app.json`, not yet implemented in `peergos` core). Grants access
-  to the `<calendarDir>/<year>/<month>/<id>.ics` structure this app expects.
-- **Sharing** uses an existing app-facing API, not a new permission — not
-  yet confirmed working from a sandboxed context.
-- **Search is client-side** (no full-history index yet) — behind
-  `getSearchableEvents()` so a real backend API can swap in later.
-- **No drag-and-drop** — editing a date goes through the edit popup.
-  FullCalendar has an open report of event-dragging not working inside an
-  embedded Android WebView, which is how the Peergos Android app renders
-  sandboxed apps. Creating a new event is `dateClick` (plain click/tap),
-  not drag-select either - no drag interaction anywhere in this app,
-  deliberately, on both desktop and mobile.
-- **`.ics` stays plain RFC 5545**, standard `PRODID` — must round-trip
-  cleanly with standard external calendar clients.
-- **Recurrence dates are floating time, no `TZID`** — passed to
-  `@fullcalendar/rrule` as bare local-time strings, never `Date` objects,
-  since the plugin reads `Date` via UTC getters regardless of actual
-  timezone.
+- Sandboxed app, not built into `web-ui`.
+- FullCalendar 7.0.2, Standard bundle (MIT) + `@fullcalendar/rrule`.
+- Permissions `READ_CALENDAR`/`WRITE_CALENDAR` not yet implemented in
+  `peergos` core.
+- Sharing uses an existing app-facing API, not confirmed working from a
+  sandboxed context yet.
+- Search is client-side, behind `getSearchableEvents()`.
+- No drag-and-drop (FullCalendar/Android WebView compatibility risk) -
+  editing goes through the edit popup, creating is `dateClick`.
+- `.ics` stays plain RFC 5545.
+- Recurrence dates are floating time, no `TZID`.
 
 ### Requirements
 
-- Recurring events (done, see Status for `BYDAY`/`BYMONTHDAY`/`BYMONTH` scope)
+- Recurring events (done)
 - Scoped recurring edits — this/following/all (done)
-- Event fields: title, location, description, color, status
+- Event fields: title, location, description, color, status (done)
 - Multiple calendars: create/rename/delete/recolor, filtering (done)
-- Sharing a calendar or event (UI done, mock data - see Status/Open items)
-- `.ics` import (done) / export incl. email (done)
-- Read-only mode, whole-calendar or per-event
+- Sharing a calendar or event (UI done, mock data)
+- `.ics` import/export incl. email (done)
+- Read-only mode, whole-calendar or per-event (done)
 - Dark mode (done)
 - Timezone handling, guest/secret-link access
 - Event search (done), duplicate-event action (done)
@@ -129,44 +75,28 @@ upstream layout.
 | Package | Version | Source |
 |---|---|---|
 | FullCalendar (Standard + all locales) | 7.0.2 | [GitHub release ZIP](https://github.com/fullcalendar/fullcalendar/releases/download/v7.0.2/fullcalendar-7.0.2.zip) |
-| `@fullcalendar/rrule` | 7.0.2 | [npm tarball](https://registry.npmjs.org/@fullcalendar/rrule/-/rrule-7.0.2.tgz) (no GitHub release asset) |
-| `rrule` | 2.8.1 | [npm tarball](https://registry.npmjs.org/rrule/-/rrule-2.8.1.tgz) (no GitHub release asset) |
+| `@fullcalendar/rrule` | 7.0.2 | [npm tarball](https://registry.npmjs.org/@fullcalendar/rrule/-/rrule-7.0.2.tgz) |
+| `rrule` | 2.8.1 | [npm tarball](https://registry.npmjs.org/rrule/-/rrule-2.8.1.tgz) |
 | Tabler Icons | outline set | [raw.githubusercontent.com/tabler/tabler-icons](https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/) |
 
 Notes:
-- Only the `breezy` FullCalendar theme is vendored (of 5 shipped). Don't
-  vendor FullCalendar from jsDelivr — it has no pre-built `.min.*` files,
-  so jsDelivr Terser-minifies on the fly.
-- `@fullcalendar/rrule` bug (still present as of v7.0.2, re-checked against
-  the changelog on this bump): a recurring event's `duration` as a bare
-  number silently produces `end === start`. Always use the object form
-  (`duration: { minutes: 45 }`).
-- Icons are inlined in HTML/JS, not `<img src>`, so they inherit
-  `currentColor` for dark mode.
-- `assets/icon.png` (`appIcon` is relative to `assets/`, like every
-  sibling app) is derived from this app's own vendored
-  `outline/calendar.svg` Tabler icon: solid black, transparent
-  background, 512x512, matching sibling apps' own icon convention.
-- To update: bump the version in the URL, replace that package's `vendor/`
-  subfolder wholesale.
+- Only the `breezy` theme is vendored. Don't vendor from jsDelivr — no
+  pre-built `.min.*` files there.
+- `@fullcalendar/rrule` bug (still present in 7.0.2): a bare-number
+  `duration` on a recurring event silently produces `end === start` - use
+  `{ minutes: 45 }` form.
+- Icons are inlined in HTML/JS for `currentColor` dark-mode support.
+- `assets/icon.png`: solid black, transparent background, 512x512.
+- To update: bump the version, replace that package's `vendor/` folder.
 
 ### Open items (tracked, not actionable from this repo)
 
 - `READ_CALENDAR`/`WRITE_CALENDAR` permissions — blocks real save/load.
-- Confirmation the sharing API is reachable from a sandboxed app - the
-  sharing UI itself is built and working (`mockShares` in `calendar.js`),
-  ready to wire up once this is confirmed.
-- Reminders/notifications need a Service Worker + Push API + a server to
-  fire pushes — unconfirmed whether sandboxed apps get Service
-  Worker/Notification permissions, or whether the Android WebView supports
-  Service Worker push at all.
-- `.ics` import's `<input type="file">` needs Android's WebView to
-  implement `onShowFileChooser()` — unconfirmed on Android, **confirmed
-  working on Linux desktop**.
-- **`.ics` export/email is blocked in a real Peergos run**: "Download is
-  disallowed... the flag 'allow-downloads' is not set." The sandboxed-app
-  CSP (`peergos` server, `StaticHandler.java`) is missing the
-  `allow-downloads` sandbox token — confirmed as a real, standard token via
-  `jspaint`'s own nested-iframe usage. Not calendar-specific: any app doing
-  a client-side download (`mindmaps`, `drawio`, `luckysheet`) hits the same
-  wall. Fixable only server-side.
+- Confirmation the sharing API is reachable from a sandboxed app.
+- Reminders/notifications need a Service Worker + Push API + a server —
+  unconfirmed support in sandboxed apps/Android WebView.
+- `.ics` import's file picker needs Android WebView's
+  `onShowFileChooser()` — unconfirmed on Android, confirmed on desktop.
+- `.ics` export/email is blocked in a real Peergos run: the sandboxed-app
+  CSP is missing the `allow-downloads` token. Server-side fix, not
+  calendar-specific.

@@ -1,45 +1,29 @@
-/* Dark mode reuses the vendored Breezy theme's own CSS custom properties
-   (`--fc-breezy-*`, defined on `:root` in `themes/breezy/palettes/indigo.css`
-   with light values and a `[data-color-scheme=dark]` override block) rather
-   than hand-rolling a separate dark palette here - the same `data-color-
-   scheme="dark"` attribute (set on <html> in calendar.js from Peergos's
-   `?theme=dark-mode` param) flips FullCalendar's own grid and every custom
-   surface below at once, and stays visually consistent with it for free.
-   `--danger` is the one addition, since Breezy has no semantic error color. */
+/* Dark mode reuses the vendored Breezy theme's own `--fc-breezy-*`
+   custom properties - `data-color-scheme="dark"` flips both at once.
+   `--danger` is the one addition (no Breezy equivalent). */
 :root {
   --danger: #b91c1c;
 }
 
-/* Marks whichever event the popover is currently open for, toggled in
-   showEventPopover()/hideEventPopover() - disambiguates which exact event
-   was clicked on a busy day, where the popup's position alone isn't
-   always enough. */
+/* Marks whichever event the popover is open for (toggled in
+   showEventPopover()/hideEventPopover()). */
 .fc-event-selected {
   outline: 2px solid var(--fc-breezy-primary);
   outline-offset: 1px;
   border-radius: 3px;
 }
 
-/* Breezy's default event rendering has no text-overflow handling at all
-   in either case below - a long title just overflows past its own edge
-   with no ellipsis, rather than truncating cleanly. [data-event-all-day]
-   is this app's own stable attribute (set in eventDidMount, see
-   calendar.js) - Breezy hashes all of FullCalendar's own class names, so
-   there's nothing else stable to select here.
-   All-day (Month/Year, and the all-day row in Week/Day): title text sits
-   two levels down (event → flex wrapper → title div) in every all-day
-   event checked, both single- and multi-day. */
+/* Breezy has no text-overflow handling by default. [data-event-all-day]
+   is this app's own attribute (eventDidMount, calendar.js) - Breezy
+   hashes FullCalendar's own class names, so nothing else is stable. */
 [data-event-all-day="1"] > div > div {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Timed events: title is always the event's own last direct child - the
-   last of two (time, title) in Week/Day's time-grid blocks, or the last
-   of three (this app's own injected color dot, time, title - see
-   fixDayGridEventLayout()) in Month/Year's day-grid rows. Both land on
-   the same element this way, one rule covers both. */
+/* Timed events: title is always the last direct child (time+title, or
+   dot+time+title in Month/Year - see fixDayGridEventLayout()). */
 [data-event-all-day="0"] > div:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -50,14 +34,8 @@
   --danger: #f87171;
   color-scheme: dark;
 
-  /* Overrides Breezy's own stock near-black surfaces with the actual
-     colors Peergos web-ui itself uses in dark mode (`--blue-800`/
-     `--blue-900` in web-ui's src/0_variables.css) - this app is embedded
-     inside Peergos, so matching its host's dark background (rather than
-     an unrelated, much darker theme default) is what actually looks
-     consistent, not a stylistic swap. Everything else (foreground/
-     border/hover overlays) stays Breezy's own dark values, which already
-     have enough contrast against this lighter background too. */
+  /* Matches Peergos web-ui's own dark background instead of Breezy's
+     stock near-black default. Everything else stays Breezy's own. */
   --fc-breezy-background: #2c3e50;
   --fc-breezy-popover: #283744;
 }
@@ -96,12 +74,7 @@ body {
   transition: flex-basis .2s ease, padding .2s ease;
 }
 
-/* Desktop-only collapse (reclaims grid width in place, no overlay) -
-   `.open`/backdrop below is the separate mobile drawer behavior. Scoped
-   above the mobile breakpoint since the mobile toggle only ever touches
-   `.open`, never `.collapsed` - without this guard, `.collapsed`'s
-   padding/overflow would still clip the drawer's content once `.open`
-   slides it into view. */
+/* Desktop-only collapse - `.open`/backdrop below is the mobile drawer. */
 @media (min-width: 701px) {
   #sidebar.collapsed {
     flex-basis: 0;
@@ -144,6 +117,13 @@ body {
   font-size: .9em;
 }
 
+.calendar-readonly-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--fc-breezy-secondary-icon);
+  opacity: .7;
+}
+
 .calendar-menu-button {
   flex: 0 0 auto;
   width: 24px;
@@ -170,12 +150,8 @@ body {
   color: var(--fc-breezy-secondary-icon-over);
 }
 
-/* The hover-to-reveal above only makes sense for a mouse - touch devices
-   never reliably trigger :hover at all, which left this button (and
-   everything behind it: Edit/Share/Export/Delete) effectively
-   unreachable on mobile. hover:none targets actual touch capability,
-   not a screen-width guess - a touch tablet at any width still needs
-   this, and a narrow desktop browser window still shouldn't get it. */
+/* Touch devices don't reliably trigger :hover - this button (and
+   everything behind it) would otherwise be unreachable on mobile. */
 @media (hover: none) {
   .calendar-menu-button {
     opacity: 1;
@@ -314,10 +290,8 @@ body {
   }
 }
 
-/* Toolbar strip above the calendar's own header, laid out like YouTube's
-   own top bar: hamburger pinned left, a prominent search bar taking the
-   available center space, an overflow "..." menu pinned right - rather
-   than everything packed to one side. */
+/* Hamburger pinned left, search bar centered, overflow menu pinned
+   right. */
 #utility-bar {
   flex: 0 0 auto;
   padding: 8px 8px 0;
@@ -327,9 +301,8 @@ body {
   gap: 12px;
 }
 
-/* The pill is built from three adjacent pieces (input, clear "x",
-   search button) sharing one border/radius so it reads as a single
-   control, same as YouTube's own search box + attached search button. */
+/* Three adjacent pieces (input, clear "x", search button) sharing one
+   border/radius so it reads as a single control. */
 #search-bar {
   position: relative;
   flex: 1 1 auto;
@@ -870,8 +843,6 @@ body {
   background: var(--fc-breezy-popover);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
-  padding: 16px;
-  box-sizing: border-box;
   z-index: 1050;
 }
 
@@ -879,25 +850,39 @@ body {
   display: block;
 }
 
+/* A sibling of .popover-scroll, not a descendant - stays fixed in the
+   corner regardless of how far that scrolls. */
+.popover-close-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+
+.popover-scroll {
+  padding: 16px;
+  box-sizing: border-box;
+  /* Scrolls instead of clamping, so long text always stays readable. */
+  max-height: min(420px, 70vh);
+  overflow-y: auto;
+}
+
+/* Only when .popover-actions provides its own closing space (toggled in
+   showEventPopover()) - a read-only event has none, so .popover-scroll's
+   own bottom padding applies instead. */
+.event-popover.has-actions .popover-scroll {
+  padding-bottom: 0;
+}
+
 .popover-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  /* Room for .popover-close-btn floating in the corner. */
+  padding-right: 32px;
 }
 
 .popover-title {
   font-size: 1.05em;
   font-weight: 600;
   word-break: break-word;
-  /* Caps growth for titles that bypass the create/edit form's own
-     maxlength (imported .ics, pre-existing data) - without this a long
-     enough title (no maxlength there either) turns the popover into a
-     wall of text instead of a compact summary. */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
 }
 
 .popover-icon-btn {
@@ -924,10 +909,7 @@ body {
   color: var(--danger);
 }
 
-/* Pushes the destructive/editing actions (delete, duplicate, edit) to
-   the far right, leaving the read-only ones (export, email) at the far
-   left - the gap this creates is the only spacing between the two
-   groups, so .popover-actions' own `gap` stays small and uniform. */
+/* Pushes delete/duplicate/edit to the far right, away from export/email. */
 #popover-delete {
   margin-left: auto;
 }
@@ -941,15 +923,8 @@ body {
   color: var(--fc-breezy-foreground);
 }
 
-/* Same unbounded-growth risk as .popover-title (long location/description
-   text, whether from this app's own maxlength-capped form or an imported
-   .ics with no such cap) - clamp both the same way. */
 #popover-location,
 #popover-description {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
   word-break: break-word;
 }
 
@@ -965,7 +940,14 @@ body {
   gap: 4px;
   margin-top: 14px;
   padding-top: 10px;
+  padding-bottom: 16px;
   border-top: 1px solid var(--fc-breezy-border);
+  /* Stays reachable at the bottom no matter how far content scrolls -
+     own padding-bottom stands in for .popover-scroll's (zeroed out via
+     .has-actions above). */
+  position: sticky;
+  bottom: 0;
+  background: var(--fc-breezy-popover);
 }
 
 @media (max-width: 450px) {
