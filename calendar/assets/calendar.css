@@ -15,9 +15,9 @@
 
 /* Hints that an empty cell is clickable to create an event - [data-date]
    is FullCalendar's own native attribute (unhashed by Breezy) on each day
-   cell/column. .is-writable gates this to when dateClick would actually
-   do something. */
-body.is-writable [data-date]:hover {
+   cell/column. Creating always lands in a writable calendar (the primary
+   one, by default), so this isn't conditional. */
+[data-date]:hover {
   background: var(--fc-breezy-muted);
   cursor: pointer;
 }

@@ -134,10 +134,6 @@ function mockDate(dayOffset, hour, minute) {
 let gymStart = mockDate(0, 7, 0);
 
 let url = new URL(window.location.href);
-let isWritable = url.searchParams.get('isPathWritable') == 'true';
-// Gates the empty-cell hover affordance in calendar.css - only shown
-// when clicking one would actually do something.
-document.body.classList.toggle('is-writable', isWritable);
 let theme = url.searchParams.get('theme');
 let isDarkMode = theme === 'dark-mode';
 if (isDarkMode) document.documentElement.setAttribute('data-color-scheme', 'dark');
@@ -525,10 +521,11 @@ function localWallClockToUtcMs(zone, y, mo, d, hh, mi, ss) {
     return guessMs - offset * 60000;
 }
 
-// Desktop Outlook exports TZID as a Windows zone name ("Eastern Standard
-// Time"), not IANA - Intl doesn't recognize those directly. Full CLDR
-// windowsZones.xml mapping (default zone per territory "001").
-let WINDOWS_TZ_TO_IANA = {
+// Some desktop calendar clients export TZID using a non-IANA name
+// ("Eastern Standard Time" instead of "America/New_York") - Intl doesn't
+// recognize those directly. Maps the common ones to their IANA
+// equivalent (default zone per CLDR territory "001").
+let LEGACY_TZID_TO_IANA = {
     'Dateline Standard Time': 'Etc/GMT+12', 'UTC-11': 'Etc/GMT+11',
     'Aleutian Standard Time': 'America/Adak', 'Hawaiian Standard Time': 'Pacific/Honolulu',
     'Marquesas Standard Time': 'Pacific/Marquesas', 'Alaskan Standard Time': 'America/Anchorage',
@@ -600,12 +597,12 @@ let WINDOWS_TZ_TO_IANA = {
 };
 
 // IANA name straight through if Intl already recognizes it, else the
-// Windows-name mapping above, else null - let the caller fall back to
+// legacy-name mapping above, else null - let the caller fall back to
 // this file's own embedded VTIMEZONE block (if any), and ultimately to
 // floating-local as a last resort.
 function resolveTzidToIanaZone(tzid) {
     if (isRecognizedIanaZone(tzid)) return tzid;
-    if (WINDOWS_TZ_TO_IANA[tzid]) return WINDOWS_TZ_TO_IANA[tzid];
+    if (LEGACY_TZID_TO_IANA[tzid]) return LEGACY_TZID_TO_IANA[tzid];
     return null;
 }
 
@@ -949,7 +946,7 @@ function parseIcsDateValue(value, params, tzResolver) {
 
 // Parses a file's own VTIMEZONE block into a sorted list of offset
 // transitions - the fallback path when a TZID is neither a recognized
-// IANA zone nor a known Windows name. STANDARD/DAYLIGHT observances
+// IANA zone nor a known legacy name. STANDARD/DAYLIGHT observances
 // defined with a recurring RRULE (the common shape, e.g. "last Sunday of
 // March") are expanded with the already-vendored rrule.js rather than a
 // hand-written RRULE evaluator.
@@ -986,9 +983,9 @@ function parseVTimeZoneOffsets(blockLines) {
                 options.dtstart = toFakeUtc(startParsed.date);
                 let rr = new rrule.RRule(options);
                 // Relative to *now*, not the observance's own DTSTART -
-                // real files (Outlook especially) often anchor these to
-                // a placeholder year like 1601, which would otherwise
-                // leave a present-day target with no transition nearby.
+                // real files often anchor these to a placeholder year
+                // like 1601, which would otherwise leave a present-day
+                // target with no transition nearby.
                 let nowYear = new Date().getFullYear();
                 let windowStart = toFakeUtc(startParsed.date);
                 let tenYearsAgo = toFakeUtc(new Date(nowYear - 10, 0, 1));
@@ -1028,7 +1025,7 @@ function offsetAtFromTransitions(transitions, naiveMs) {
 }
 
 // Builds the tzResolver passed to parseIcsDateValue for one file: a
-// recognized IANA zone name first, then a mapped Windows zone name, then
+// recognized IANA zone name first, then a mapped legacy zone name, then
 // that file's own embedded VTIMEZONE block for this exact TZID, then
 // null (caller falls back to floating-local).
 function makeTzResolver(fileVTimeZones) {
@@ -1448,11 +1445,9 @@ function getCalendarById(id) {
     return mockCalendars.find(function (c) { return c.id === id; });
 }
 
-// Combines the whole-app `isWritable` flag with a calendar's own
-// `readOnly` flag - both must allow writing.
 function isCalendarWritable(calendarId) {
     let cal = getCalendarById(calendarId);
-    return isWritable && (!cal || !cal.readOnly);
+    return !cal || !cal.readOnly;
 }
 
 function isCalendarVisible(calendarId) {
@@ -1770,8 +1765,6 @@ function openModal(mode, opts) {
     editScope = opts.scope || 'all';
     modalHeading.textContent = mode === 'edit' ? 'Edit event' : (opts.prefill ? 'Duplicate event' : 'New event');
 
-    // Per-calendar, not just isWritable - double-click bypasses the
-    // popover's own gating and opens straight into this modal.
     let targetCalendarId = mode === 'edit' ? opts.event.extendedProps.calendarId
         : ((opts.prefill && opts.prefill.calendarId) || mockCalendars[0].id);
     let writable = isCalendarWritable(targetCalendarId);
@@ -2361,11 +2354,6 @@ deleteButton.addEventListener('click', function () {
     closeModal();
 });
 
-// Search is read-only and stays available without write permission;
-// only Import (which adds data) is hidden.
-overflowImportButton.style.display = isWritable ? '' : 'none';
-addCalendarButton.style.display = isWritable ? '' : 'none';
-toolbarAddButton.style.display = isWritable ? '' : 'none';
 renderCalendarList();
 
 // eventClick fires on both clicks of a double-click - the first click's
@@ -2434,7 +2422,6 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
     // dateClick, not selectable/select - plain click/tap only, no drag.
     // New events get a default duration (1 hour timed, 1 day all-day).
     dateClick: function (info) {
-        if (!isWritable) return;
         let endDate = info.allDay ? addDays(info.date, 1) : new Date(info.date.getTime() + 60 * 60 * 1000);
         openModal('create', { date: info.date, endDate: endDate, allDay: info.allDay });
     },

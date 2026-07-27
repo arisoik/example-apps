@@ -35,8 +35,11 @@ items).
   username or via a secret link, read-only only. Mock state
   (`mockShares`).
 - **Read-only calendars**: a calendar can be marked `readOnly`
-  (`isCalendarWritable()`), independent of the whole-app `isWritable`
-  flag - drops Edit/Share/Delete for it and its events.
+  (`isCalendarWritable()`) - drops Edit/Share/Delete for it and its
+  events. Per-calendar only, not a whole-app flag - the sandboxed-app
+  runtime has no documented way to query that, and the old built-in
+  calendar's own code confirms per-path is the right model
+  (`dir.isWritable()`, checked once per calendar's own source).
 - **Dark mode**: reads Peergos's `?theme=` param once at launch.
 - **Navigation**: ISO week numbers, swipe/Previous/Next/Today/search all
   share a slide transition. The toolbar title is clickable/tappable to
@@ -45,8 +48,8 @@ items).
   calendar.js) - a popover on desktop, a full-width bottom sheet below
   `MOBILE_BREAKPOINT`. The year field has explicit +/− buttons and
   auto-navigates ~600ms after a 4-digit year is typed. Empty day
-  cells/columns highlight on hover (`body.is-writable [data-date]:hover`)
-  as a hint they're clickable.
+  cells/columns highlight on hover (`[data-date]:hover`) as a hint
+  they're clickable.
 
 ## For maintainers
 
@@ -73,9 +76,10 @@ items).
     to local time across a DST change. No per-event zone picker - always
     this app's current zone.
   - Import resolves `TZID` via, in order: a recognized IANA name, a
-    mapped Windows name (`WINDOWS_TZ_TO_IANA`, for Outlook), the file's
-    own embedded `VTIMEZONE` block, then floating-local as a last
-    resort. A bare UTC value skips all of this.
+    mapped legacy name (`LEGACY_TZID_TO_IANA` - some desktop calendar
+    clients use these instead of IANA names), the file's own embedded
+    `VTIMEZONE` block, then floating-local as a last resort. A bare UTC
+    value skips all of this.
   - Known limitation: an ambiguous/nonexistent local time (fall-back's
     repeated hour, spring-forward's skipped one) resolves to one side
     deterministically - shared with most timezone libraries.
@@ -136,6 +140,8 @@ Notes:
 ### Open items (tracked, not actionable from this repo)
 
 - `READ_CALENDAR`/`WRITE_CALENDAR` permissions — blocks real save/load.
+  `peergos-app.json` currently declares none, so the app installs and
+  runs today; add them back once the permissions exist.
 - Confirmation the sharing API is reachable from a sandboxed app.
 - Reminders/notifications need a Service Worker + Push API + a server —
   unconfirmed support in sandboxed apps/Android WebView.
