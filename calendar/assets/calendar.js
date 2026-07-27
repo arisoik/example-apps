@@ -1607,6 +1607,18 @@ function renderCalendarList() {
         item.appendChild(menuButton);
         item.appendChild(menu);
 
+        // Clicking anywhere in the row toggles visibility, not just the
+        // checkbox - a bigger target for something done often.
+        // menuButton's own handler already stops its clicks reaching
+        // here; .calendar-menu's buttons don't, hence the explicit guard.
+        item.addEventListener('click', function (e) {
+            if (e.target === checkbox) return;
+            if (e.target.closest('.calendar-menu')) return;
+            checkbox.checked = !checkbox.checked;
+            cal.visible = checkbox.checked;
+            applyCalendarVisibility();
+        });
+
         calendarListEl.appendChild(item);
     });
 }
