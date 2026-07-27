@@ -18,8 +18,9 @@ items).
   email/share), double-click for edit directly (desktop only), click/tap
   an empty slot to create. Title/location capped at 1024 characters. Long
   text truncates with an ellipsis on the grid, scrolls in the popover.
-- **Toolbar**: sidebar toggle, search (title/location/description,
-  2-char minimum), "⋯" overflow menu (Import).
+- **Toolbar**: sidebar toggle, "+" new event (autofocuses title, defaults
+  to now), search (title/location/description, 2-char minimum), "⋯"
+  overflow menu (Import).
 - **`.ics` export/import**: RFC 5545, per-event or per-calendar. Bulk
   import with duplicate detection. Unsupported `RRULE` parts simplify to
   plain `FREQ`+`INTERVAL`. `TZID` reads as floating local time; `VALARM`
@@ -36,7 +37,14 @@ items).
   flag - drops Edit/Share/Delete for it and its events.
 - **Dark mode**: reads Peergos's `?theme=` param once at launch.
 - **Navigation**: ISO week numbers, swipe/Previous/Next/Today/search all
-  share a slide transition.
+  share a slide transition. The toolbar title is clickable/tappable to
+  jump to any month/year via a Month `<select>` + year number field
+  (`openGotoDatePicker()`/`navigateToSelectedMonthYear()` in
+  calendar.js) - a popover on desktop, a full-width bottom sheet below
+  `MOBILE_BREAKPOINT`. The year field has explicit +/− buttons and
+  auto-navigates ~600ms after a 4-digit year is typed. Empty day
+  cells/columns highlight on hover (`body.is-writable [data-date]:hover`)
+  as a hint they're clickable.
 
 ## For maintainers
 
@@ -85,6 +93,19 @@ Notes:
 - `@fullcalendar/rrule` bug (still present in 7.0.2): a bare-number
   `duration` on a recurring event silently produces `end === start` - use
   `{ minutes: 45 }` form.
+- Breezy 7.0.2 bug: clicking a custom `headerToolbar` button (the
+  `buttons` option) throws an uncaught internal `refineProps` error,
+  independent of this app's own code; built-in buttons
+  (`prev`/`today`/`next`/etc.) are unaffected. Use a plain button
+  outside FullCalendar's own toolbar instead (see "+" new event above).
+- `datesSet`'s own DOM (e.g. the title heading) isn't safe to read back
+  from once you've replaced its children yourself - FullCalendar's vdom
+  then stops finding the plain text node it expects there and silently
+  stops updating it on later renders. Use `arg.view.title` instead of
+  the heading's own `textContent`.
+- FullCalendar v7 renamed several documented options without an alias:
+  `customButtons` → `buttons`, and `buttonText: { list: ... }` → a flat
+  `listText`. Don't trust option names from older docs/examples.
 - Icons are inlined in HTML/JS for `currentColor` dark-mode support.
 - `assets/icon.png`: solid black, transparent background, 512x512.
 - To update: bump the version, replace that package's `vendor/` folder.

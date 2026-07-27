@@ -135,6 +135,9 @@ let gymStart = mockDate(0, 7, 0);
 
 let url = new URL(window.location.href);
 let isWritable = url.searchParams.get('isPathWritable') == 'true';
+// Gates the empty-cell hover affordance in calendar.css - only shown
+// when clicking one would actually do something.
+document.body.classList.toggle('is-writable', isWritable);
 let theme = url.searchParams.get('theme');
 let isDarkMode = theme === 'dark-mode';
 if (isDarkMode) document.documentElement.setAttribute('data-color-scheme', 'dark');
@@ -286,6 +289,12 @@ let popoverEmailButton = document.getElementById('popover-email');
 let popoverShareButton = document.getElementById('popover-share');
 let popoverDeleteButton = document.getElementById('popover-delete');
 let icsFileInput = document.getElementById('ics-file-input');
+let toolbarAddButton = document.getElementById('toolbar-add-button');
+let gotoDateMenu = document.getElementById('goto-date-menu');
+let gotoDateMonthInput = document.getElementById('goto-date-month');
+let gotoDateYearInput = document.getElementById('goto-date-year');
+let gotoDateYearDownButton = document.getElementById('goto-date-year-down');
+let gotoDateYearUpButton = document.getElementById('goto-date-year-up');
 let overflowMenuButton = document.getElementById('overflow-menu-button');
 let overflowMenu = document.getElementById('overflow-menu');
 let overflowImportButton = document.getElementById('overflow-import-button');
@@ -1451,6 +1460,7 @@ function openModal(mode, opts) {
     repeatSection.style.display = (editScope === 'this') ? 'none' : '';
 
     modalBackdrop.classList.add('open');
+    titleInput.focus();
 }
 
 function closeModal() {
@@ -1579,6 +1589,93 @@ popoverShareButton.addEventListener('click', function () {
     hideEventPopover();
     openShareModal('event:' + ev.id, ev.title);
 });
+
+// Defaults to real "now", not whatever date happens to be in view -
+// matches other calendar apps' always-visible create button.
+toolbarAddButton.addEventListener('click', function () {
+    let now = new Date();
+    openModal('create', { date: now, endDate: new Date(now.getTime() + 3600000), allDay: false });
+});
+
+// Month <select> (hardcoded English names) + a plain year number input,
+// not a year <select> (would need an arbitrary min/max cap) or a native
+// date input (renders/positions inconsistently across browsers).
+let MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+MONTH_NAMES.forEach(function (name, i) {
+    let option = document.createElement('option');
+    option.value = i;
+    option.textContent = name;
+    gotoDateMonthInput.appendChild(option);
+});
+
+function openGotoDatePicker(anchorEl) {
+    let current = calendar.getDate();
+    gotoDateMonthInput.value = current.getMonth();
+    gotoDateYearInput.value = current.getFullYear();
+    gotoDateMenu.classList.add('open');
+    // Below MOBILE_BREAKPOINT it's a full-width bottom sheet (CSS media
+    // query) instead of anchored under the title - clear any inline
+    // position left over from a wider-window open so the CSS rules
+    // apply cleanly.
+    if (window.innerWidth <= MOBILE_BREAKPOINT) {
+        gotoDateMenu.style.left = '';
+        gotoDateMenu.style.top = '';
+        return;
+    }
+    // Width isn't known until rendered with real content, hence
+    // measuring only after .open above.
+    let rect = anchorEl.getBoundingClientRect();
+    let menuWidth = gotoDateMenu.getBoundingClientRect().width;
+    let margin = 8;
+    let desiredLeft = rect.left + rect.width / 2 - menuWidth / 2;
+    gotoDateMenu.style.left = Math.max(margin, Math.min(desiredLeft, window.innerWidth - margin - menuWidth)) + 'px';
+    gotoDateMenu.style.top = rect.bottom + 'px';
+}
+
+// Preserves the currently-viewed day-of-month where possible, clamped to
+// however many days the target month actually has (Jan 31 -> Feb 28/29,
+// not an overflow into March).
+function navigateToSelectedMonthYear() {
+    let year = parseInt(gotoDateYearInput.value, 10);
+    if (!year) return; // empty/cleared year field - not a real value yet
+    let month = parseInt(gotoDateMonthInput.value, 10);
+    let day = Math.min(calendar.getDate().getDate(), new Date(year, month + 1, 0).getDate());
+    let jumpDate = new Date(year, month, day);
+    let viewChanging = jumpDate < calendar.view.activeStart || jumpDate >= calendar.view.activeEnd;
+    if (viewChanging) freezeForViewTransition(jumpDate < calendar.view.activeStart ? 'prev' : 'next');
+    calendar.gotoDate(jumpDate);
+    if (viewChanging) settleViewTransition();
+}
+
+gotoDateMonthInput.addEventListener('change', navigateToSelectedMonthYear);
+gotoDateYearInput.addEventListener('change', navigateToSelectedMonthYear);
+
+// 'change' alone (fires on blur) isn't enough on mobile: a numeric
+// keyboard often has no Enter/Done key that would blur the field, so
+// typing a year and having nothing happen reads as broken. Debounced
+// 'input' navigates automatically shortly after the user stops typing,
+// without needing an explicit confirm step at all. Only once 4 digits
+// are in, though - navigating after "1" or "20" would jump to year 1 or
+// 20 mid-type, before the user's actually finished entering the year
+// they meant.
+let gotoDateYearInputTimer = null;
+gotoDateYearInput.addEventListener('input', function () {
+    clearTimeout(gotoDateYearInputTimer);
+    if (gotoDateYearInput.value.length !== 4) return;
+    gotoDateYearInputTimer = setTimeout(navigateToSelectedMonthYear, 600);
+});
+
+function stepGotoDateYear(delta) {
+    let year = (parseInt(gotoDateYearInput.value, 10) || calendar.getDate().getFullYear()) + delta;
+    gotoDateYearInput.value = Math.max(1, Math.min(9999, year));
+    navigateToSelectedMonthYear();
+}
+
+// Explicit +/- buttons instead of relying on the year field's own
+// native spinner arrows - those are notoriously tiny/unreliable to tap
+// on a touch screen.
+gotoDateYearDownButton.addEventListener('click', function () { stepGotoDateYear(-1); });
+gotoDateYearUpButton.addEventListener('click', function () { stepGotoDateYear(1); });
 
 overflowMenuButton.addEventListener('click', function () {
     overflowMenu.classList.toggle('open');
@@ -1766,7 +1863,7 @@ shareModalBackdrop.addEventListener('click', function (e) {
 // phase, not bubble: eventClick's stopPropagation() would otherwise hide
 // clicks on events from a bubble-phase listener here.
 document.addEventListener('click', function (e) {
-    if (!e.target.closest('.calendar-menu button') && !e.target.closest('.calendar-menu-button') && !e.target.closest('#overflow-menu-button') && !e.target.closest('#overflow-menu-version')) {
+    if (!e.target.closest('.calendar-menu button') && !e.target.closest('.calendar-menu-button') && !e.target.closest('#overflow-menu-button') && !e.target.closest('#overflow-menu-version') && !e.target.closest('#goto-date-menu') && !e.target.closest('.goto-date-trigger')) {
         closeAllCalendarMenus();
     }
 }, true);
@@ -1785,15 +1882,46 @@ document.addEventListener('click', function (e) {
     }
 }, true);
 
-// Exception: dismissing the popover shouldn't also create a new event
-// via the click underneath it. Mousedown, not click, since dateClick
-// fires on mousedown/mouseup before a click listener could react.
-document.addEventListener('mousedown', function (e) {
-    if (!popover.classList.contains('open')) return;
-    if (popover.contains(e.target)) return;
-    if (e.target.closest('[data-search-event-id]')) return;
-    e.stopPropagation();
-}, true);
+// Exception: dismissing the popover/menu shouldn't also create a new
+// event via the click underneath it. On touch, stopPropagation() alone
+// doesn't work - it only blocks this touchstart, but the browser still
+// synthesizes a trailing click regardless, which is what dateClick
+// actually fires from. preventDefault() on touchstart suppresses that
+// synthetic click, but the outside-click-closes-menu listeners below
+// also depend on that same click - so on touch this handler has to
+// close the container itself instead.
+function preventClickThrough(container, isTriggerTarget, closeContainer) {
+    return function (e) {
+        if (!container.classList.contains('open')) return;
+        if (container.contains(e.target)) return;
+        if (isTriggerTarget(e.target)) return;
+        e.stopPropagation();
+        if (e.type === 'touchstart') {
+            e.preventDefault();
+            closeContainer();
+        }
+    };
+}
+
+// { passive: false } is required here, not just { capture: true } - Chrome
+// defaults document-level touchstart listeners to passive (a scroll-perf
+// intervention), which would otherwise silently ignore preventDefault().
+let touchGuardOptions = { capture: true, passive: false };
+
+let preventPopoverClickThrough = preventClickThrough(popover, function (target) {
+    return !!target.closest('[data-search-event-id]');
+}, hideEventPopover);
+document.addEventListener('mousedown', preventPopoverClickThrough, true);
+document.addEventListener('touchstart', preventPopoverClickThrough, touchGuardOptions);
+
+// Same reasoning, for the goto-date menu - dismissing it (as a mobile
+// bottom sheet, tapping "outside" it often means tapping a day cell
+// still visible above it) shouldn't also create a new event underneath.
+let preventGotoDateClickThrough = preventClickThrough(gotoDateMenu, function (target) {
+    return !!target.closest('.goto-date-trigger');
+}, closeAllCalendarMenus);
+document.addEventListener('mousedown', preventGotoDateClickThrough, true);
+document.addEventListener('touchstart', preventGotoDateClickThrough, touchGuardOptions);
 
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
@@ -1862,6 +1990,7 @@ deleteButton.addEventListener('click', function () {
 // only Import (which adds data) is hidden.
 overflowImportButton.style.display = isWritable ? '' : 'none';
 addCalendarButton.style.display = isWritable ? '' : 'none';
+toolbarAddButton.style.display = isWritable ? '' : 'none';
 renderCalendarList();
 
 // eventClick fires on both clicks of a double-click - the first click's
@@ -1906,6 +2035,11 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
         center: 'title',
         right: 'multiMonthYear,dayGridMonth,timeGridWeek,timeGridDay,listWeek'
     },
+    // "Agenda" is the more familiar name other calendar apps use for
+    // this exact view, vs. FullCalendar's generic default "list".
+    // Flat listText, not a nested buttonText: { list: ... } - this
+    // vendored v7 build has no such nested option (see README).
+    listText: 'Agenda',
     height: '100%',
     firstDay: 1,
     weekNumbers: true,
@@ -1946,6 +2080,25 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
             eventClickTimer = null;
             showEventPopover(info.event, info.el);
         }, 300);
+    },
+    // Replaces the title's (FullCalendar's own role="heading") text with
+    // one keyboard-reachable .goto-date-trigger span, on every render.
+    // Reads arg.view.title, not heading.textContent - once this handler
+    // has replaced the heading's children once, FullCalendar's vdom no
+    // longer finds the plain text node it expects there and silently
+    // stops updating it (datesSet itself still fires correctly either way).
+    datesSet: function (arg) {
+        let heading = calendarEl.querySelector('[role="heading"]');
+        if (!heading) return;
+        let text = arg.view.title;
+        heading.innerHTML = '';
+        let trigger = document.createElement('span');
+        trigger.className = 'goto-date-trigger';
+        trigger.textContent = text;
+        trigger.setAttribute('role', 'button');
+        trigger.tabIndex = 0;
+        trigger.setAttribute('aria-label', text + ', go to date');
+        heading.appendChild(trigger);
     }
 });
 calendar.render();
@@ -2014,6 +2167,21 @@ calendarEl.addEventListener('click', function (e) {
     freezeForViewTransition(direction);
     setTimeout(settleViewTransition, 0);
 }, true);
+
+// Delegated (title re-renders on every navigation, see datesSet above) -
+// mouse/touch via click, keyboard via Enter/Space since it's a real
+// tabbable role="button" now, not a native <button>.
+calendarEl.addEventListener('click', function (e) {
+    let trigger = e.target.closest('.goto-date-trigger');
+    if (trigger) openGotoDatePicker(trigger);
+});
+calendarEl.addEventListener('keydown', function (e) {
+    let trigger = e.target.closest('.goto-date-trigger');
+    if ((e.key === 'Enter' || e.key === ' ') && trigger) {
+        e.preventDefault();
+        openGotoDatePicker(trigger);
+    }
+});
 
 // Re-applies fixDayGridEventLayout() on resize/rotation, not just at
 // mount. Debounced since resize can fire many times in quick succession.

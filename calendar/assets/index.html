@@ -27,6 +27,11 @@
         <button type="button" id="sidebar-toggle-button" class="popover-icon-btn" aria-label="Toggle calendar list" title="Toggle calendar list">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l16 0"/><path d="M4 12l16 0"/><path d="M4 18l16 0"/></svg>
         </button>
+        <!-- Not FullCalendar's own headerToolbar "buttons" API - see
+             README's Vendored dependencies notes. -->
+        <button type="button" id="toolbar-add-button" class="popover-icon-btn" aria-label="New event" title="New event">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l0 14"/><path d="M5 12l14 0"/></svg>
+        </button>
         <div id="search-bar">
           <input type="text" id="search-input" placeholder="Search events" autocomplete="off"/>
           <button type="button" id="search-clear-button" aria-label="Clear search" title="Clear search">
@@ -36,6 +41,19 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path d="M21 21l-6 -6"/></svg>
           </button>
           <div id="search-results" class="search-results"></div>
+        </div>
+
+        <!-- Opened by clicking/activating the calendar's own title (see
+             openGotoDatePicker() in calendar.js) - positioned there
+             dynamically since it has no fixed home in FullCalendar's
+             own toolbar markup. -->
+        <div id="goto-date-menu" class="calendar-menu">
+          <select id="goto-date-month" aria-label="Month"></select>
+          <div id="goto-date-year-stepper">
+            <button type="button" id="goto-date-year-down" aria-label="Previous year">−</button>
+            <input type="number" id="goto-date-year" aria-label="Year" min="1" max="9999"/>
+            <button type="button" id="goto-date-year-up" aria-label="Next year">+</button>
+          </div>
         </div>
 
         <div id="overflow-menu-wrap">

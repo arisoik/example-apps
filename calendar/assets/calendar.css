@@ -13,6 +13,15 @@
   border-radius: 3px;
 }
 
+/* Hints that an empty cell is clickable to create an event - [data-date]
+   is FullCalendar's own native attribute (unhashed by Breezy) on each day
+   cell/column. .is-writable gates this to when dateClick would actually
+   do something. */
+body.is-writable [data-date]:hover {
+  background: var(--fc-breezy-muted);
+  cursor: pointer;
+}
+
 /* Breezy has no text-overflow handling by default. [data-event-all-day]
    is this app's own attribute (eventDidMount, calendar.js) - Breezy
    hashes FullCalendar's own class names, so nothing else is stable. */
@@ -214,6 +223,98 @@ body {
   flex: 0 0 auto;
 }
 
+/* left is computed/clamped to the viewport in openGotoDatePicker()
+   (calendar.js). right: auto overrides .calendar-menu's own
+   `right: 4px` (meant for the other dropdowns) - with both left and
+   right set, width:auto would stretch to fill the gap instead of
+   shrinking to content. */
+#goto-date-menu {
+  position: fixed;
+  right: auto;
+  padding: 8px;
+  display: none;
+  gap: 6px;
+}
+
+#goto-date-menu.open {
+  display: flex;
+}
+
+/* height + box-sizing explicit and shared with #goto-date-year-stepper
+   button below - a <select> and a number input don't naturally settle
+   at the same height otherwise, even with identical padding. */
+#goto-date-menu select,
+#goto-date-menu input {
+  box-sizing: border-box;
+  height: 36px;
+  font: inherit;
+  color: var(--fc-breezy-foreground);
+  background: var(--fc-breezy-background);
+  border: 1px solid var(--fc-breezy-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+#goto-date-menu input[type="number"] {
+  width: 4.5em;
+  text-align: center;
+  /* Native spinner arrows are tiny/unreliable on touch - the explicit
+     #goto-date-year-up/down buttons are the real stepper now. */
+  -moz-appearance: textfield;
+}
+
+#goto-date-menu input[type="number"]::-webkit-inner-spin-button,
+#goto-date-menu input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+#goto-date-year-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#goto-date-year-stepper button {
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid var(--fc-breezy-border);
+  border-radius: 4px;
+  background: var(--fc-breezy-background);
+  color: var(--fc-breezy-foreground);
+  font-size: 1.2em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#goto-date-year-stepper button:hover {
+  background: var(--fc-breezy-muted);
+}
+
+/* Matches Breezy's own toolbar buttons (radius, padding, hover) rather
+   than a standalone pill. [role="heading"] is FullCalendar's own
+   element inside #calendar. */
+#calendar [role="heading"] {
+  white-space: nowrap;
+}
+
+#calendar .goto-date-trigger {
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 8px 12px;
+  /* Stretches the existing space in e.g. "July 2026" for breathing room
+     between the words, without needing to know the exact title format. */
+  word-spacing: 4px;
+}
+
+#calendar .goto-date-trigger:hover,
+#calendar .goto-date-trigger:focus-visible {
+  background: var(--fc-breezy-muted);
+}
+
 .sidebar-add-button {
   display: flex;
   align-items: center;
@@ -287,6 +388,23 @@ body {
     inset: 0;
     background: rgba(0, 0, 0, .3);
     z-index: 1090;
+  }
+
+  /* Bottom sheet instead of a small popover anchored under the title -
+     see the matching JS branch in openGotoDatePicker() (calendar.js),
+     which skips setting inline left/top below this same breakpoint so
+     these rules apply cleanly instead of fighting inline ones. */
+  #goto-date-menu.open {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: 100%;
+    box-sizing: border-box;
+    justify-content: center;
+    border-radius: 12px 12px 0 0;
+    padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
 }
 
