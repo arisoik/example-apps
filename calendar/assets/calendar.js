@@ -481,6 +481,134 @@ function buildPlainEventPayload(id, title, allDay, start, end, extra) {
     };
 }
 
+// --- Timezone conversion (IANA, via the browser's own Intl tz database -
+// no hand-maintained offset/DST rule table) ---
+
+let LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+let ianaZoneValidityCache = {};
+function isRecognizedIanaZone(zone) {
+    if (zone in ianaZoneValidityCache) return ianaZoneValidityCache[zone];
+    let valid;
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: zone });
+        valid = true;
+    } catch (e) {
+        valid = false;
+    }
+    ianaZoneValidityCache[zone] = valid;
+    return valid;
+}
+
+// UTC offset (minutes, east-positive) a zone observes at a given instant -
+// read off Intl's "GMT±HH:MM" longOffset format, so DST and half-hour
+// offsets (India, Nepal, ...) are handled without listing them by hand.
+function tzOffsetMinutesAt(zone, utcMs) {
+    let parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset', hour: '2-digit' }).formatToParts(new Date(utcMs));
+    let raw = parts.find(function (p) { return p.type === 'timeZoneName'; }).value;
+    let m = raw.match(/GMT([+-])(\d{2}):(\d{2})/);
+    if (!m) return 0;
+    let sign = m[1] === '-' ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+}
+
+// Converts a local wall-clock time in `zone` to the UTC instant it
+// represents - one correction pass after an initial UTC-literal guess.
+// An ambiguous local time (fall-back's repeated hour, spring-forward's
+// skipped one) resolves to one side rather than erroring, same as most
+// timezone libraries.
+function localWallClockToUtcMs(zone, y, mo, d, hh, mi, ss) {
+    let guessMs = Date.UTC(y, mo, d, hh, mi, ss || 0);
+    let offset = tzOffsetMinutesAt(zone, guessMs);
+    let utcMs = guessMs - offset * 60000;
+    offset = tzOffsetMinutesAt(zone, utcMs);
+    return guessMs - offset * 60000;
+}
+
+// Desktop Outlook exports TZID as a Windows zone name ("Eastern Standard
+// Time"), not IANA - Intl doesn't recognize those directly. Full CLDR
+// windowsZones.xml mapping (default zone per territory "001").
+let WINDOWS_TZ_TO_IANA = {
+    'Dateline Standard Time': 'Etc/GMT+12', 'UTC-11': 'Etc/GMT+11',
+    'Aleutian Standard Time': 'America/Adak', 'Hawaiian Standard Time': 'Pacific/Honolulu',
+    'Marquesas Standard Time': 'Pacific/Marquesas', 'Alaskan Standard Time': 'America/Anchorage',
+    'UTC-09': 'Etc/GMT+9', 'Pacific Standard Time (Mexico)': 'America/Tijuana',
+    'UTC-08': 'Etc/GMT+8', 'Pacific Standard Time': 'America/Los_Angeles',
+    'US Mountain Standard Time': 'America/Phoenix', 'Mountain Standard Time (Mexico)': 'America/Chihuahua',
+    'Mountain Standard Time': 'America/Denver', 'Central America Standard Time': 'America/Guatemala',
+    'Central Standard Time': 'America/Chicago', 'Easter Island Standard Time': 'Pacific/Easter',
+    'Central Standard Time (Mexico)': 'America/Mexico_City', 'Canada Central Standard Time': 'America/Regina',
+    'SA Pacific Standard Time': 'America/Bogota', 'Eastern Standard Time (Mexico)': 'America/Cancun',
+    'Eastern Standard Time': 'America/New_York', 'Haiti Standard Time': 'America/Port-au-Prince',
+    'Cuba Standard Time': 'America/Havana', 'US Eastern Standard Time': 'America/Indianapolis',
+    'Turks And Caicos Standard Time': 'America/Grand_Turk', 'Paraguay Standard Time': 'America/Asuncion',
+    'Atlantic Standard Time': 'America/Halifax', 'Venezuela Standard Time': 'America/Caracas',
+    'Central Brazilian Standard Time': 'America/Cuiaba', 'SA Western Standard Time': 'America/La_Paz',
+    'Pacific SA Standard Time': 'America/Santiago', 'Newfoundland Standard Time': 'America/St_Johns',
+    'Tocantins Standard Time': 'America/Araguaina', 'E. South America Standard Time': 'America/Sao_Paulo',
+    'SA Eastern Standard Time': 'America/Cayenne', 'Argentina Standard Time': 'America/Buenos_Aires',
+    'Greenland Standard Time': 'America/Godthab', 'Montevideo Standard Time': 'America/Montevideo',
+    'Magallanes Standard Time': 'America/Punta_Arenas', 'Saint Pierre Standard Time': 'America/Miquelon',
+    'Bahia Standard Time': 'America/Bahia', 'UTC-02': 'Etc/GMT+2', 'Mid-Atlantic Standard Time': 'Etc/GMT+2',
+    'Azores Standard Time': 'Atlantic/Azores', 'Cape Verde Standard Time': 'Atlantic/Cape_Verde',
+    'UTC': 'Etc/UTC', 'GMT Standard Time': 'Europe/London', 'Greenwich Standard Time': 'Atlantic/Reykjavik',
+    'Sao Tome Standard Time': 'Africa/Sao_Tome', 'Morocco Standard Time': 'Africa/Casablanca',
+    'W. Europe Standard Time': 'Europe/Berlin', 'Central Europe Standard Time': 'Europe/Budapest',
+    'Romance Standard Time': 'Europe/Paris', 'Central European Standard Time': 'Europe/Warsaw',
+    'W. Central Africa Standard Time': 'Africa/Lagos', 'Jordan Standard Time': 'Asia/Amman',
+    'GTB Standard Time': 'Europe/Bucharest', 'Middle East Standard Time': 'Asia/Beirut',
+    'Egypt Standard Time': 'Africa/Cairo', 'E. Europe Standard Time': 'Europe/Chisinau',
+    'Syria Standard Time': 'Asia/Damascus', 'West Bank Standard Time': 'Asia/Hebron',
+    'South Africa Standard Time': 'Africa/Johannesburg', 'FLE Standard Time': 'Europe/Kiev',
+    'Israel Standard Time': 'Asia/Jerusalem', 'Kaliningrad Standard Time': 'Europe/Kaliningrad',
+    'Sudan Standard Time': 'Africa/Khartoum', 'Libya Standard Time': 'Africa/Tripoli',
+    'Namibia Standard Time': 'Africa/Windhoek', 'Arabic Standard Time': 'Asia/Baghdad',
+    'Turkey Standard Time': 'Europe/Istanbul', 'Arab Standard Time': 'Asia/Riyadh',
+    'Belarus Standard Time': 'Europe/Minsk', 'Russian Standard Time': 'Europe/Moscow',
+    'E. Africa Standard Time': 'Africa/Nairobi', 'Iran Standard Time': 'Asia/Tehran',
+    'Arabian Standard Time': 'Asia/Dubai', 'Astrakhan Standard Time': 'Europe/Astrakhan',
+    'Azerbaijan Standard Time': 'Asia/Baku', 'Russia Time Zone 3': 'Europe/Samara',
+    'Mauritius Standard Time': 'Indian/Mauritius', 'Saratov Standard Time': 'Europe/Saratov',
+    'Georgian Standard Time': 'Asia/Tbilisi', 'Volgograd Standard Time': 'Europe/Volgograd',
+    'Caucasus Standard Time': 'Asia/Yerevan', 'Afghanistan Standard Time': 'Asia/Kabul',
+    'West Asia Standard Time': 'Asia/Tashkent', 'Ekaterinburg Standard Time': 'Asia/Yekaterinburg',
+    'Pakistan Standard Time': 'Asia/Karachi', 'Qyzylorda Standard Time': 'Asia/Qyzylorda',
+    'India Standard Time': 'Asia/Calcutta', 'Sri Lanka Standard Time': 'Asia/Colombo',
+    'Nepal Standard Time': 'Asia/Katmandu', 'Central Asia Standard Time': 'Asia/Almaty',
+    'Bangladesh Standard Time': 'Asia/Dhaka', 'Omsk Standard Time': 'Asia/Omsk',
+    'Myanmar Standard Time': 'Asia/Rangoon', 'SE Asia Standard Time': 'Asia/Bangkok',
+    'Altai Standard Time': 'Asia/Barnaul', 'W. Mongolia Standard Time': 'Asia/Hovd',
+    'Novosibirsk Standard Time': 'Asia/Novosibirsk', 'Tomsk Standard Time': 'Asia/Tomsk',
+    'China Standard Time': 'Asia/Shanghai', 'North Asia Standard Time': 'Asia/Krasnoyarsk',
+    'Singapore Standard Time': 'Asia/Singapore', 'W. Australia Standard Time': 'Australia/Perth',
+    'Taipei Standard Time': 'Asia/Taipei', 'Ulaanbaatar Standard Time': 'Asia/Ulaanbaatar',
+    'Aus Central W. Standard Time': 'Australia/Eucla', 'Transbaikal Standard Time': 'Asia/Chita',
+    'Tokyo Standard Time': 'Asia/Tokyo', 'North Korea Standard Time': 'Asia/Pyongyang',
+    'Korea Standard Time': 'Asia/Seoul', 'Yakutsk Standard Time': 'Asia/Yakutsk',
+    'Cen. Australia Standard Time': 'Australia/Adelaide', 'AUS Central Standard Time': 'Australia/Darwin',
+    'E. Australia Standard Time': 'Australia/Brisbane', 'AUS Eastern Standard Time': 'Australia/Sydney',
+    'West Pacific Standard Time': 'Pacific/Port_Moresby', 'Tasmania Standard Time': 'Australia/Hobart',
+    'Vladivostok Standard Time': 'Asia/Vladivostok', 'Lord Howe Standard Time': 'Australia/Lord_Howe',
+    'Bougainville Standard Time': 'Pacific/Bougainville', 'Russia Time Zone 10': 'Asia/Srednekolymsk',
+    'Magadan Standard Time': 'Asia/Magadan', 'Norfolk Standard Time': 'Pacific/Norfolk',
+    'Sakhalin Standard Time': 'Asia/Sakhalin', 'Central Pacific Standard Time': 'Pacific/Guadalcanal',
+    'Russia Time Zone 11': 'Asia/Kamchatka', 'New Zealand Standard Time': 'Pacific/Auckland',
+    'UTC+12': 'Etc/GMT-12', 'Fiji Standard Time': 'Pacific/Fiji', 'Kamchatka Standard Time': 'Asia/Kamchatka',
+    'Chatham Islands Standard Time': 'Pacific/Chatham', 'UTC+13': 'Etc/GMT-13',
+    'Tonga Standard Time': 'Pacific/Tongatapu', 'Samoa Standard Time': 'Pacific/Apia',
+    'Line Islands Standard Time': 'Pacific/Kiritimati'
+};
+
+// IANA name straight through if Intl already recognizes it, else the
+// Windows-name mapping above, else null - let the caller fall back to
+// this file's own embedded VTIMEZONE block (if any), and ultimately to
+// floating-local as a last resort.
+function resolveTzidToIanaZone(tzid) {
+    if (isRecognizedIanaZone(tzid)) return tzid;
+    if (WINDOWS_TZ_TO_IANA[tzid]) return WINDOWS_TZ_TO_IANA[tzid];
+    return null;
+}
+
 // --- .ics (RFC 5545) export/import ---
 
 function escapeIcsText(str) {
@@ -512,16 +640,113 @@ function icsDateStamp(date) {
     return toDateInputValue(date).replace(/-/g, '');
 }
 
+// Local wall-clock stamp (no Z, no offset) - used for TZID-qualified
+// values, where the offset lives in the TZID param instead.
 function icsDateTimeStamp(date) {
     return icsDateStamp(date) + 'T' + toTimeInputValue(date).replace(':', '') + '00';
 }
 
-function icsUtcNow() {
-    return new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+function icsUtcStamp(date) {
+    return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 }
 
-function icsDtLine(name, date, allDay) {
-    return allDay ? (name + ';VALUE=DATE:' + icsDateStamp(date)) : (name + ':' + icsDateTimeStamp(date));
+function icsUtcNow() {
+    return icsUtcStamp(new Date());
+}
+
+// RFC 5545 UTC-OFFSET ("-0500", "+0530"), not Intl's "GMT-05:00" form.
+function formatIcsUtcOffset(minutes) {
+    let sign = minutes < 0 ? '-' : '+';
+    let abs = Math.abs(minutes);
+    return sign + pad(Math.floor(abs / 60)) + pad(abs % 60);
+}
+
+function parseIcsUtcOffset(value) {
+    let m = String(value).match(/^([+-])(\d{2})(\d{2})(\d{2})?$/);
+    if (!m) return null;
+    let sign = m[1] === '-' ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+}
+
+// No tzid: a fixed UTC instant (single events - simplest, universally
+// interoperable). With tzid: local wall-clock value + TZID param
+// (recurring series - keeps occurrences pinned to local time across DST;
+// see buildVTimeZoneBlock()).
+function icsDtLine(name, date, allDay, tzid) {
+    if (allDay) return name + ';VALUE=DATE:' + icsDateStamp(date);
+    if (tzid) return name + ';TZID=' + tzid + ':' + icsDateTimeStamp(date);
+    return name + ':' + icsUtcStamp(date);
+}
+
+// Y/M/D/H/M/S wall-clock reading of a UTC instant in an arbitrary IANA
+// zone (not the browser's own) - used to compute VTIMEZONE observance
+// DTSTARTs, which must be expressed in that zone's own local time.
+function wallClockPartsInZone(zone, utcMs) {
+    let parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: zone, hourCycle: 'h23',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).formatToParts(new Date(utcMs));
+    let get = function (type) { return parts.find(function (p) { return p.type === type; }).value; };
+    return { y: +get('year'), mo: +get('month') - 1, d: +get('day'), hh: +get('hour'), mi: +get('minute'), ss: +get('second') };
+}
+
+// Generates a VTIMEZONE for `zone` covering roughly the last year
+// through the next 5 - a coarse monthly scan finds which months have a
+// transition, then each is bisected down to the minute. Pure
+// compatibility aid for parsers that don't resolve a bare IANA TZID by
+// name (most do); this app's own DTSTART/EXDATE/UNTIL values are already
+// correct via the TZID string alone.
+function buildVTimeZoneBlock(zone) {
+    let startYear = new Date().getFullYear() - 1;
+    let endYear = startYear + 6;
+    let rangeStartMs = Date.UTC(startYear, 0, 1);
+    let rangeEndMs = Date.UTC(endYear, 0, 1);
+
+    let samples = [];
+    for (let ms = rangeStartMs; ms < rangeEndMs; ms += 30 * 24 * 3600000) {
+        samples.push({ ms: ms, offset: tzOffsetMinutesAt(zone, ms) });
+    }
+    samples.push({ ms: rangeEndMs, offset: tzOffsetMinutesAt(zone, rangeEndMs) });
+
+    let transitions = [];
+    for (let i = 1; i < samples.length; i++) {
+        if (samples[i].offset === samples[i - 1].offset) continue;
+        let lo = samples[i - 1].ms, hi = samples[i].ms;
+        let loOffset = samples[i - 1].offset;
+        while (hi - lo > 60000) {
+            let mid = lo + Math.floor((hi - lo) / 2 / 60000) * 60000;
+            if (tzOffsetMinutesAt(zone, mid) === loOffset) lo = mid; else hi = mid;
+        }
+        transitions.push({ atUtcMs: hi, fromOffset: loOffset, toOffset: tzOffsetMinutesAt(zone, hi) });
+    }
+
+    let lines = ['BEGIN:VTIMEZONE', 'TZID:' + zone];
+    if (!transitions.length) {
+        // No DST in this window - one flat observance covers it all.
+        let offset = tzOffsetMinutesAt(zone, rangeStartMs);
+        lines.push(
+            'BEGIN:STANDARD',
+            'DTSTART:' + icsDateTimeStamp(new Date(startYear, 0, 1)),
+            'TZOFFSETFROM:' + formatIcsUtcOffset(offset),
+            'TZOFFSETTO:' + formatIcsUtcOffset(offset),
+            'END:STANDARD'
+        );
+    } else {
+        transitions.forEach(function (t) {
+            let wc = wallClockPartsInZone(zone, t.atUtcMs);
+            let kind = t.toOffset > t.fromOffset ? 'DAYLIGHT' : 'STANDARD';
+            lines.push(
+                'BEGIN:' + kind,
+                'DTSTART:' + icsDateTimeStamp(new Date(wc.y, wc.mo, wc.d, wc.hh, wc.mi, wc.ss)),
+                'TZOFFSETFROM:' + formatIcsUtcOffset(t.fromOffset),
+                'TZOFFSETTO:' + formatIcsUtcOffset(t.toOffset),
+                'END:' + kind
+            );
+        });
+    }
+    lines.push('END:VTIMEZONE');
+    return lines;
 }
 
 // "2026-08-15"/"2026-08-15T07:00" to RFC 5545's compact form.
@@ -531,7 +756,7 @@ function toIcsCompact(dashColonStr, allDay) {
     return parts[0].replace(/-/g, '') + 'T' + parts[1].replace(':', '') + '00';
 }
 
-function recurToIcsRRuleLine(recur, allDay) {
+function recurToIcsRRuleLine(recur, allDay, tzid) {
     let freqMap = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
     let parts = ['FREQ=' + freqMap[recur.freq]];
     if (recur.interval > 1) parts.push('INTERVAL=' + recur.interval);
@@ -539,15 +764,26 @@ function recurToIcsRRuleLine(recur, allDay) {
     if (recur.end === 'count' && recur.count) {
         parts.push('COUNT=' + recur.count);
     } else if (recur.end === 'until' && recur.until) {
-        parts.push('UNTIL=' + toIcsCompact(formatUntil(recur.until, recur.dtstart, allDay), allDay));
+        let untilStr = formatUntil(recur.until, recur.dtstart, allDay);
+        if (allDay) {
+            parts.push('UNTIL=' + toIcsCompact(untilStr, true));
+        } else {
+            // UNTIL can't carry a TZID param, and DTSTART has one here -
+            // RFC 5545 (and universal real-world practice) says UNTIL
+            // must then be UTC.
+            let u = new Date(untilStr);
+            let utcMs = localWallClockToUtcMs(tzid, u.getFullYear(), u.getMonth(), u.getDate(), u.getHours(), u.getMinutes(), u.getSeconds());
+            parts.push('UNTIL=' + icsUtcStamp(new Date(utcMs)));
+        }
     }
     return 'RRULE:' + parts.join(';');
 }
 
-function recurToIcsExdateLine(recur, allDay) {
+function recurToIcsExdateLine(recur, allDay, tzid) {
     if (!recur.exdates || !recur.exdates.length) return null;
     let values = recur.exdates.map(function (s) { return toIcsCompact(s, allDay); });
-    return (allDay ? 'EXDATE;VALUE=DATE:' : 'EXDATE:') + values.join(',');
+    if (allDay) return 'EXDATE;VALUE=DATE:' + values.join(',');
+    return 'EXDATE;TZID=' + tzid + ':' + values.join(',');
 }
 
 // Lets a re-imported file we exported ourselves resolve to the same
@@ -580,12 +816,14 @@ function eventToIcsLines(ev) {
     let recur = ev.extendedProps.recur;
 
     if (recur) {
+        // TZID, not UTC - see icsDtLine().
+        let tzid = ev.allDay ? null : LOCAL_TZ;
         let dtstart = ev.allDay ? new Date(recur.dtstart + 'T00:00') : new Date(recur.dtstart);
         let durationMs = ev.start ? (ev.end || ev.start).getTime() - ev.start.getTime() : recurringDurationMs(ev.id);
-        lines.push(icsDtLine('DTSTART', dtstart, ev.allDay));
-        lines.push(icsDtLine('DTEND', new Date(dtstart.getTime() + durationMs), ev.allDay));
-        lines.push(recurToIcsRRuleLine(recur, ev.allDay));
-        let exdateLine = recurToIcsExdateLine(recur, ev.allDay);
+        lines.push(icsDtLine('DTSTART', dtstart, ev.allDay, tzid));
+        lines.push(icsDtLine('DTEND', new Date(dtstart.getTime() + durationMs), ev.allDay, tzid));
+        lines.push(recurToIcsRRuleLine(recur, ev.allDay, tzid));
+        let exdateLine = recurToIcsExdateLine(recur, ev.allDay, tzid);
         if (exdateLine) lines.push(exdateLine);
     } else {
         lines.push(icsDtLine('DTSTART', ev.start, ev.allDay));
@@ -605,7 +843,11 @@ function icsFileNameFor(name) {
 }
 
 function downloadIcsFile(filename, veventLines) {
+    // Every TZID this app emits is LOCAL_TZ (see eventToIcsLines) - one
+    // shared VTIMEZONE block, included only if something needs it.
+    let usesLocalTz = veventLines.some(function (l) { return l.indexOf(';TZID=' + LOCAL_TZ + ':') !== -1; });
     let lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Peergos//Calendar 0.0.1//EN', 'CALSCALE:GREGORIAN']
+        .concat(usesLocalTz ? buildVTimeZoneBlock(LOCAL_TZ) : [])
         .concat(veventLines)
         .concat(['END:VCALENDAR']);
     let text = lines.map(foldIcsLine).join('\r\n') + '\r\n';
@@ -687,9 +929,9 @@ function parseIcsPropertyLine(line) {
     return { name: headParts[0].toUpperCase(), params: params, value: value };
 }
 
-// TZID-qualified values are read as floating local time - no IANA
-// timezone conversion (known limitation).
-function parseIcsDateValue(value, params) {
+// tzResolver(tzid, y, mo, d, hh, mi, ss) -> UTC ms, or null to fall back
+// to floating-local (see makeTzResolver() for the resolution chain).
+function parseIcsDateValue(value, params, tzResolver) {
     let m = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
     if (!m) return null;
     let y = +m[1], mo = +m[2] - 1, d = +m[3];
@@ -698,10 +940,112 @@ function parseIcsDateValue(value, params) {
     }
     let hh = +m[4], mi = +m[5], ss = +m[6];
     if (m[7]) return { date: new Date(Date.UTC(y, mo, d, hh, mi, ss)), allDay: false };
+    if (params.TZID && tzResolver) {
+        let utcMs = tzResolver(params.TZID, y, mo, d, hh, mi, ss);
+        if (utcMs !== null) return { date: new Date(utcMs), allDay: false };
+    }
     return { date: new Date(y, mo, d, hh, mi, ss), allDay: false };
 }
 
-function parseIcsRRuleValue(value) {
+// Parses a file's own VTIMEZONE block into a sorted list of offset
+// transitions - the fallback path when a TZID is neither a recognized
+// IANA zone nor a known Windows name. STANDARD/DAYLIGHT observances
+// defined with a recurring RRULE (the common shape, e.g. "last Sunday of
+// March") are expanded with the already-vendored rrule.js rather than a
+// hand-written RRULE evaluator.
+function parseVTimeZoneOffsets(blockLines) {
+    let observances = [];
+    let current = null;
+    blockLines.forEach(function (line) {
+        if (line === 'BEGIN:STANDARD' || line === 'BEGIN:DAYLIGHT') {
+            current = [];
+        } else if (line === 'END:STANDARD' || line === 'END:DAYLIGHT') {
+            if (current) observances.push(current);
+            current = null;
+        } else if (current) {
+            current.push(line);
+        }
+    });
+
+    let transitions = [];
+    observances.forEach(function (obsLines) {
+        let props = obsLines.map(parseIcsPropertyLine).filter(Boolean);
+        let find = function (name) { return props.find(function (p) { return p.name === name; }); };
+        let dtstartLine = find('DTSTART');
+        let offsetLine = find('TZOFFSETTO');
+        if (!dtstartLine || !offsetLine) return;
+        let offsetMinutes = parseIcsUtcOffset(offsetLine.value);
+        if (offsetMinutes === null) return;
+        let startParsed = parseIcsDateValue(dtstartLine.value, {});
+        if (!startParsed) return;
+
+        let rruleLine = find('RRULE');
+        if (rruleLine) {
+            try {
+                let options = rrule.RRule.parseString(rruleLine.value);
+                options.dtstart = toFakeUtc(startParsed.date);
+                let rr = new rrule.RRule(options);
+                // Relative to *now*, not the observance's own DTSTART -
+                // real files (Outlook especially) often anchor these to
+                // a placeholder year like 1601, which would otherwise
+                // leave a present-day target with no transition nearby.
+                let nowYear = new Date().getFullYear();
+                let windowStart = toFakeUtc(startParsed.date);
+                let tenYearsAgo = toFakeUtc(new Date(nowYear - 10, 0, 1));
+                if (tenYearsAgo > windowStart) windowStart = tenYearsAgo;
+                let windowEnd = toFakeUtc(new Date(nowYear + 10, 0, 1));
+                rr.between(windowStart, windowEnd, true).forEach(function (occ) {
+                    transitions.push({ ms: fromFakeUtc(occ).getTime(), offsetMinutes: offsetMinutes });
+                });
+            } catch (e) {
+                transitions.push({ ms: startParsed.date.getTime(), offsetMinutes: offsetMinutes });
+            }
+        } else {
+            transitions.push({ ms: startParsed.date.getTime(), offsetMinutes: offsetMinutes });
+            let rdateLine = find('RDATE');
+            if (rdateLine) {
+                rdateLine.value.split(',').forEach(function (v) {
+                    let parsed = parseIcsDateValue(v.trim(), {});
+                    if (parsed) transitions.push({ ms: parsed.date.getTime(), offsetMinutes: offsetMinutes });
+                });
+            }
+        }
+    });
+    transitions.sort(function (a, b) { return a.ms - b.ms; });
+    return transitions;
+}
+
+// Latest transition at or before naiveMs - both sides use the same
+// floating/local interpretation, so their relative order is valid even
+// though neither is a real UTC instant on its own.
+function offsetAtFromTransitions(transitions, naiveMs) {
+    let result = null;
+    for (let i = 0; i < transitions.length; i++) {
+        if (transitions[i].ms > naiveMs) break;
+        result = transitions[i].offsetMinutes;
+    }
+    return result;
+}
+
+// Builds the tzResolver passed to parseIcsDateValue for one file: a
+// recognized IANA zone name first, then a mapped Windows zone name, then
+// that file's own embedded VTIMEZONE block for this exact TZID, then
+// null (caller falls back to floating-local).
+function makeTzResolver(fileVTimeZones) {
+    return function (tzid, y, mo, d, hh, mi, ss) {
+        let zone = resolveTzidToIanaZone(tzid);
+        if (zone) return localWallClockToUtcMs(zone, y, mo, d, hh, mi, ss);
+        let transitions = fileVTimeZones[tzid];
+        if (transitions && transitions.length) {
+            let naiveMs = new Date(y, mo, d, hh, mi, ss).getTime();
+            let offsetMinutes = offsetAtFromTransitions(transitions, naiveMs);
+            if (offsetMinutes !== null) return Date.UTC(y, mo, d, hh, mi, ss) - offsetMinutes * 60000;
+        }
+        return null;
+    };
+}
+
+function parseIcsRRuleValue(value, dtstartTzid, tzResolver) {
     let freqMap = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' };
     let props = {};
     value.split(';').forEach(function (p) {
@@ -734,7 +1078,9 @@ function parseIcsRRuleValue(value) {
         recur.end = 'count';
         recur.count = parseInt(props.COUNT, 10);
     } else if (props.UNTIL) {
-        let parsed = parseIcsDateValue(props.UNTIL, {});
+        // UNTIL can't carry its own TZID param but is meant to match
+        // DTSTART's zone, so that's applied here as if it were one.
+        let parsed = parseIcsDateValue(props.UNTIL, dtstartTzid ? { TZID: dtstartTzid } : {}, tzResolver);
         if (parsed) {
             recur.end = 'until';
             recur.until = toDateInputValue(parsed.date);
@@ -743,14 +1089,14 @@ function parseIcsRRuleValue(value) {
     return recur;
 }
 
-function parseIcsVevent(rawLines) {
+function parseIcsVevent(rawLines, tzResolver) {
     let props = rawLines.map(parseIcsPropertyLine).filter(Boolean);
     let find = function (name) { return props.find(function (p) { return p.name === name; }); };
     let findAll = function (name) { return props.filter(function (p) { return p.name === name; }); };
 
     let dtstartLine = find('DTSTART');
     if (!dtstartLine) return null;
-    let startParsed = parseIcsDateValue(dtstartLine.value, dtstartLine.params);
+    let startParsed = parseIcsDateValue(dtstartLine.value, dtstartLine.params, tzResolver);
     if (!startParsed) return null;
     let allDay = startParsed.allDay;
     let start = startParsed.date;
@@ -758,19 +1104,19 @@ function parseIcsVevent(rawLines) {
     let dtendLine = find('DTEND');
     let end;
     if (dtendLine) {
-        let endParsed = parseIcsDateValue(dtendLine.value, dtendLine.params);
+        let endParsed = parseIcsDateValue(dtendLine.value, dtendLine.params, tzResolver);
         end = endParsed ? endParsed.date : start;
     } else {
         end = allDay ? addDays(start, 1) : new Date(start.getTime() + 3600000);
     }
 
     let rruleLine = find('RRULE');
-    let recur = rruleLine ? parseIcsRRuleValue(rruleLine.value) : null;
+    let recur = rruleLine ? parseIcsRRuleValue(rruleLine.value, dtstartLine.params.TZID, tzResolver) : null;
     if (recur) {
         recur.dtstart = allDay ? toDateInputValue(start) : (toDateInputValue(start) + 'T' + toTimeInputValue(start));
         findAll('EXDATE').forEach(function (l) {
             l.value.split(',').forEach(function (v) {
-                let parsed = parseIcsDateValue(v.trim(), l.params);
+                let parsed = parseIcsDateValue(v.trim(), l.params, tzResolver);
                 if (parsed) recur.exdates.push(allDay ? toDateInputValue(parsed.date) : (toDateInputValue(parsed.date) + 'T' + toTimeInputValue(parsed.date)));
             });
         });
@@ -797,23 +1143,40 @@ function parseIcsVevent(rawLines) {
 }
 
 // `failed` counts VEVENT blocks that didn't produce a usable event.
+// VTIMEZONE blocks are siblings of VEVENT (not nested inside one), so
+// they're collected in a first pass and turned into a per-TZID offset
+// resolver before any VEVENT is actually parsed.
 function parseIcsFile(text) {
     let lines = unfoldIcsLines(text);
-    let events = [];
-    let failed = 0;
+    let vtimezoneBlocks = [];
+    let veventBlocks = [];
     let current = null;
+    let currentKind = null;
     lines.forEach(function (line) {
-        if (line === 'BEGIN:VEVENT') {
+        if (line === 'BEGIN:VEVENT' || line === 'BEGIN:VTIMEZONE') {
             current = [];
-        } else if (line === 'END:VEVENT') {
-            if (current) {
-                let ev = parseIcsVevent(current);
-                if (ev) events.push(ev); else failed++;
-            }
+            currentKind = line.slice('BEGIN:'.length);
+        } else if (line === 'END:VEVENT' || line === 'END:VTIMEZONE') {
+            if (current) (currentKind === 'VEVENT' ? veventBlocks : vtimezoneBlocks).push(current);
             current = null;
+            currentKind = null;
         } else if (current) {
             current.push(line);
         }
+    });
+
+    let fileVTimeZones = {};
+    vtimezoneBlocks.forEach(function (blockLines) {
+        let tzidLine = blockLines.map(parseIcsPropertyLine).filter(Boolean).find(function (p) { return p.name === 'TZID'; });
+        if (tzidLine) fileVTimeZones[tzidLine.value] = parseVTimeZoneOffsets(blockLines);
+    });
+    let tzResolver = makeTzResolver(fileVTimeZones);
+
+    let events = [];
+    let failed = 0;
+    veventBlocks.forEach(function (blockLines) {
+        let ev = parseIcsVevent(blockLines, tzResolver);
+        if (ev) events.push(ev); else failed++;
     });
     return { events: events, failed: failed };
 }

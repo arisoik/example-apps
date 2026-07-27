@@ -23,8 +23,10 @@ items).
   overflow menu (Import).
 - **`.ics` export/import**: RFC 5545, per-event or per-calendar. Bulk
   import with duplicate detection. Unsupported `RRULE` parts simplify to
-  plain `FREQ`+`INTERVAL`. `TZID` reads as floating local time; `VALARM`
-  is dropped.
+  plain `FREQ`+`INTERVAL`; `VALARM` is dropped. Timezone-aware (see
+  Architecture decisions below) - a single event exports in UTC, a
+  recurring series carries its own `TZID` plus a generated `VTIMEZONE`
+  block so it stays pinned to local time across a DST change.
 - **Email an event**: `mailto:` with a plain-text summary, not the `.ics`
   file.
 - **Multiple calendars**: create/rename/delete/recolor, show/hide
@@ -60,7 +62,23 @@ items).
 - No drag-and-drop (FullCalendar/Android WebView compatibility risk) -
   editing goes through the edit popup, creating is `dateClick`.
 - `.ics` stays plain RFC 5545.
-- Recurrence dates are floating time, no `TZID`.
+- Timezone-aware export/import (calendar.js, "Timezone conversion" and
+  ".ics" sections) - derived entirely from the browser's own `Intl` tz
+  database, no bundled IANA rule table:
+  - Single events export as a fixed UTC instant - correct for anyone
+    sharing across zones, no `VTIMEZONE` needed.
+  - Recurring series export with `TZID=<this app's current IANA zone>`
+    on `DTSTART`/`DTEND`/`EXDATE` (`RRULE`'s `UNTIL` in UTC instead, per
+    spec) plus a generated `VTIMEZONE` block, so occurrences stay pinned
+    to local time across a DST change. No per-event zone picker - always
+    this app's current zone.
+  - Import resolves `TZID` via, in order: a recognized IANA name, a
+    mapped Windows name (`WINDOWS_TZ_TO_IANA`, for Outlook), the file's
+    own embedded `VTIMEZONE` block, then floating-local as a last
+    resort. A bare UTC value skips all of this.
+  - Known limitation: an ambiguous/nonexistent local time (fall-back's
+    repeated hour, spring-forward's skipped one) resolves to one side
+    deterministically - shared with most timezone libraries.
 
 ### Requirements
 
@@ -72,7 +90,8 @@ items).
 - `.ics` import/export incl. email (done)
 - Read-only mode, whole-calendar or per-event (done)
 - Dark mode (done)
-- Timezone handling, guest/secret-link access
+- Timezone handling (done - see Architecture decisions)
+- Guest/secret-link access
 - Event search (done), duplicate-event action (done)
 
 ### Vendored dependencies
@@ -106,6 +125,10 @@ Notes:
 - FullCalendar v7 renamed several documented options without an alias:
   `customButtons` → `buttons`, and `buttonText: { list: ... }` → a flat
   `listText`. Don't trust option names from older docs/examples.
+- `rrule.RRule.parseString()`/`.between()` (already vendored for
+  recurring events) are reused to expand an imported `VTIMEZONE`
+  block's own `RRULE`-based DST observances - no separate evaluator
+  needed for that path.
 - Icons are inlined in HTML/JS for `currentColor` dark-mode support.
 - `assets/icon.png`: solid black, transparent background, 512x512.
 - To update: bump the version, replace that package's `vendor/` folder.
