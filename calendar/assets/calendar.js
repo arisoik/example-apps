@@ -485,7 +485,13 @@ function buildPlainEventPayload(id, title, allDay, start, end, extra) {
 
 let LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-let ianaZoneValidityCache = {};
+// Object.create(null), not {} - `zone` is attacker-controlled (an
+// imported TZID), and `in` walks the whole prototype chain: "__proto__"
+// in {} is true (it's an Object.prototype accessor), so that zone name
+// would read back the inherited prototype object instead of a real
+// true/false. Confirmed: this made resolveTzidToIanaZone("__proto__")
+// return "__proto__" as a "valid" zone, which then crashed downstream.
+let ianaZoneValidityCache = Object.create(null);
 function isRecognizedIanaZone(zone) {
     if (zone in ianaZoneValidityCache) return ianaZoneValidityCache[zone];
     let valid;
@@ -602,10 +608,13 @@ let LEGACY_TZID_TO_IANA = {
 // IANA name straight through if Intl already recognizes it, else the
 // legacy-name mapping above, else null - let the caller fall back to
 // this file's own embedded VTIMEZONE block (if any), and ultimately to
-// floating-local as a last resort.
+// floating-local as a last resort. hasOwnProperty, not a bare [tzid]
+// lookup - a TZID of "__proto__"/"constructor"/etc. would otherwise
+// resolve to that inherited value instead of undefined (confirmed:
+// crashed Intl.DateTimeFormat downstream, aborting the whole import).
 function resolveTzidToIanaZone(tzid) {
     if (isRecognizedIanaZone(tzid)) return tzid;
-    if (LEGACY_TZID_TO_IANA[tzid]) return LEGACY_TZID_TO_IANA[tzid];
+    if (Object.prototype.hasOwnProperty.call(LEGACY_TZID_TO_IANA, tzid)) return LEGACY_TZID_TO_IANA[tzid];
     return null;
 }
 
@@ -953,6 +962,21 @@ function parseIcsDateValue(value, params, tzResolver) {
 // defined with a recurring RRULE (the common shape, e.g. "last Sunday of
 // March") are expanded with the already-vendored rrule.js rather than a
 // hand-written RRULE evaluator.
+
+// Same frequency restriction the regular event-RRULE importer already
+// applies (parseIcsRRuleValue) - without it, a ~200-byte "FREQ=SECONDLY"
+// VTIMEZONE observance expanded across the 20-year window below attempts
+// hundreds of millions of iterations synchronously. Confirmed, not
+// theoretical: this froze a real browser tab for 10+ seconds with no way
+// to interrupt it (JS is single-threaded).
+let ALLOWED_VTIMEZONE_RRULE_FREQS = [rrule.RRule.YEARLY, rrule.RRule.MONTHLY, rrule.RRule.WEEKLY, rrule.RRule.DAILY];
+
+// Extra bound alongside the frequency check above - even a legitimate
+// frequency can't exceed this within the 20-year window (DAILY is the
+// worst case at ~7300), so this only ever matters if a file crams in an
+// implausible number of separate observances.
+let MAX_VTIMEZONE_TRANSITIONS = 2000;
+
 function parseVTimeZoneOffsets(blockLines) {
     let observances = [];
     let current = null;
@@ -969,6 +993,7 @@ function parseVTimeZoneOffsets(blockLines) {
 
     let transitions = [];
     observances.forEach(function (obsLines) {
+        if (transitions.length >= MAX_VTIMEZONE_TRANSITIONS) return;
         let props = obsLines.map(parseIcsPropertyLine).filter(Boolean);
         let find = function (name) { return props.find(function (p) { return p.name === name; }); };
         let dtstartLine = find('DTSTART');
@@ -983,6 +1008,9 @@ function parseVTimeZoneOffsets(blockLines) {
         if (rruleLine) {
             try {
                 let options = rrule.RRule.parseString(rruleLine.value);
+                if (ALLOWED_VTIMEZONE_RRULE_FREQS.indexOf(options.freq) === -1) {
+                    throw new Error('unsupported VTIMEZONE RRULE frequency');
+                }
                 options.dtstart = toFakeUtc(startParsed.date);
                 let rr = new rrule.RRule(options);
                 // Relative to *now*, not the observance's own DTSTART -
@@ -995,6 +1023,7 @@ function parseVTimeZoneOffsets(blockLines) {
                 if (tenYearsAgo > windowStart) windowStart = tenYearsAgo;
                 let windowEnd = toFakeUtc(new Date(nowYear + 10, 0, 1));
                 rr.between(windowStart, windowEnd, true).forEach(function (occ) {
+                    if (transitions.length >= MAX_VTIMEZONE_TRANSITIONS) return;
                     transitions.push({ ms: fromFakeUtc(occ).getTime(), offsetMinutes: offsetMinutes });
                 });
             } catch (e) {
@@ -1035,7 +1064,7 @@ function makeTzResolver(fileVTimeZones) {
     return function (tzid, y, mo, d, hh, mi, ss) {
         let zone = resolveTzidToIanaZone(tzid);
         if (zone) return localWallClockToUtcMs(zone, y, mo, d, hh, mi, ss);
-        let transitions = fileVTimeZones[tzid];
+        let transitions = Object.prototype.hasOwnProperty.call(fileVTimeZones, tzid) ? fileVTimeZones[tzid] : null;
         if (transitions && transitions.length) {
             let naiveMs = new Date(y, mo, d, hh, mi, ss).getTime();
             let offsetMinutes = offsetAtFromTransitions(transitions, naiveMs);
@@ -1165,17 +1194,29 @@ function parseIcsFile(text) {
         }
     });
 
-    let fileVTimeZones = {};
+    // Object.create(null), not {} - a VTIMEZONE's TZID is attacker-
+    // controlled, and a plain {} treats a TZID of "__proto__" as its
+    // prototype-setter rather than a key (confirmed: silently repoints
+    // this object's own [[Prototype]], no own property added).
+    let fileVTimeZones = Object.create(null);
     vtimezoneBlocks.forEach(function (blockLines) {
         let tzidLine = blockLines.map(parseIcsPropertyLine).filter(Boolean).find(function (p) { return p.name === 'TZID'; });
         if (tzidLine) fileVTimeZones[tzidLine.value] = parseVTimeZoneOffsets(blockLines);
     });
     let tzResolver = makeTzResolver(fileVTimeZones);
 
+    // One malformed/hostile VEVENT throwing (unexpected data shape,
+    // anything not already handled by returning null) shouldn't cost
+    // every other, otherwise-valid event in the same file.
     let events = [];
     let failed = 0;
     veventBlocks.forEach(function (blockLines) {
-        let ev = parseIcsVevent(blockLines, tzResolver);
+        let ev;
+        try {
+            ev = parseIcsVevent(blockLines, tzResolver);
+        } catch (e) {
+            ev = null;
+        }
         if (ev) events.push(ev); else failed++;
     });
     return { events: events, failed: failed };
