@@ -32,8 +32,10 @@ items).
 - **Multiple calendars**: create/rename/delete/recolor, show/hide
   filtering. Primary calendar can't be deleted.
 - **Sharing**: an event or non-primary calendar can be shared with a
-  username or via a secret link, read-only only. Mock state
-  (`mockShares`).
+  username or via a secret link, each grantable as view-only or
+  can-edit, changeable after the fact; a secret link can also be
+  revoked. Mock state (`mockShares`) - not wired to a real permission
+  grant (see Architecture decisions).
 - **Read-only calendars**: a calendar can be marked `readOnly`
   (`isCalendarWritable()`) - drops Edit/Share/Delete for it and its
   events. Per-calendar only, not a whole-app flag - the sandboxed-app
@@ -60,7 +62,11 @@ items).
 - Permissions `READ_CALENDAR`/`WRITE_CALENDAR` not yet implemented in
   `peergos` core.
 - Sharing uses an existing app-facing API, not confirmed working from a
-  sandboxed context yet.
+  sandboxed context yet. The old built-in calendar (`web-ui`) never
+  actually offers write-access sharing either, despite the underlying
+  Peergos sharing primitive supporting it (`readAccess`/`writeAccess`,
+  an `allowReadWriteSharing` flag) - it always calls its own share
+  dialog with that flag hardcoded off.
 - Search is client-side, behind `getSearchableEvents()`.
 - No drag-and-drop (FullCalendar/Android WebView compatibility risk) -
   editing goes through the edit popup, creating is `dateClick`.
@@ -95,7 +101,8 @@ items).
 - Read-only mode, whole-calendar or per-event (done)
 - Dark mode (done)
 - Timezone handling (done - see Architecture decisions)
-- Guest/secret-link access
+- Guest/secret-link access (UI done, mock data - see Architecture
+  decisions on the sharing API caveat)
 - Event search (done), duplicate-event action (done)
 
 ### Vendored dependencies

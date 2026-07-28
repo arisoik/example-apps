@@ -260,11 +260,14 @@ let shareModalBackdrop = document.getElementById('share-modal-backdrop');
 let shareModalHeading = document.getElementById('share-modal-heading');
 let shareUserList = document.getElementById('share-user-list');
 let shareUsernameInput = document.getElementById('share-username-input');
+let shareAccessSelect = document.getElementById('share-access-select');
 let shareAddButton = document.getElementById('share-add-button');
 let shareCreateLinkButton = document.getElementById('share-create-link-button');
 let shareLinkRow = document.getElementById('share-link-row');
 let shareLinkInput = document.getElementById('share-link-input');
+let shareLinkAccessSelect = document.getElementById('share-link-access-select');
 let shareLinkCopyButton = document.getElementById('share-link-copy-button');
+let shareLinkRevokeButton = document.getElementById('share-link-revoke-button');
 let shareCloseButton = document.getElementById('share-close-button');
 
 let popover = document.getElementById('event-popover');
@@ -1688,6 +1691,23 @@ function getShareState(key) {
     return mockShares[key];
 }
 
+// Shared by each user row and the secret link row - a <select> instead
+// of a static badge so an existing share's access can be changed in
+// place, not just set once when it's created.
+function createAccessSelect(label, canEdit, onChange) {
+    let select = document.createElement('select');
+    select.setAttribute('aria-label', label);
+    ['view', 'edit'].forEach(function (value) {
+        let option = document.createElement('option');
+        option.value = value;
+        option.textContent = value === 'edit' ? 'Can edit' : 'Can view';
+        select.appendChild(option);
+    });
+    select.value = canEdit ? 'edit' : 'view';
+    select.addEventListener('change', function () { onChange(select.value === 'edit'); });
+    return select;
+}
+
 function renderShareUserList() {
     let state = getShareState(shareModalKey);
     shareUserList.innerHTML = '';
@@ -1698,25 +1718,42 @@ function renderShareUserList() {
         shareUserList.appendChild(empty);
         return;
     }
-    state.users.forEach(function (username) {
+    state.users.forEach(function (share) {
         let row = document.createElement('div');
         row.className = 'share-user-row';
         let name = document.createElement('span');
         name.className = 'share-username';
-        name.textContent = username;
+        name.textContent = share.username;
+        let access = createAccessSelect(share.username + ' access level', share.canEdit, function (canEdit) {
+            share.canEdit = canEdit;
+        });
         let removeBtn = document.createElement('button');
         removeBtn.type = 'button';
-        removeBtn.setAttribute('aria-label', 'Remove ' + username);
+        removeBtn.setAttribute('aria-label', 'Remove ' + share.username);
         removeBtn.title = 'Remove';
         removeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></svg>';
         removeBtn.addEventListener('click', function () {
-            state.users = state.users.filter(function (u) { return u !== username; });
+            state.users = state.users.filter(function (u) { return u !== share; });
             renderShareUserList();
         });
         row.appendChild(name);
+        row.appendChild(access);
         row.appendChild(removeBtn);
         shareUserList.appendChild(row);
     });
+}
+
+// "Create secret link" only makes sense while there isn't one yet - once
+// created, the link row (with its own revoke button) replaces it rather
+// than sitting alongside it.
+function renderShareLinkUI() {
+    let state = getShareState(shareModalKey);
+    shareCreateLinkButton.style.display = state.secretLink ? 'none' : '';
+    shareLinkRow.classList.toggle('open', !!state.secretLink);
+    if (state.secretLink) {
+        shareLinkInput.value = state.secretLink.url;
+        shareLinkAccessSelect.value = state.secretLink.canEdit ? 'edit' : 'view';
+    }
 }
 
 function openShareModal(key, displayName) {
@@ -1738,9 +1775,8 @@ function openShareModal(key, displayName) {
     shareModalHeading.appendChild(nameSpan);
     shareModalHeading.appendChild(suffix);
     shareUsernameInput.value = '';
-    let state = getShareState(key);
-    shareLinkRow.classList.toggle('open', !!state.secretLink);
-    if (state.secretLink) shareLinkInput.value = state.secretLink;
+    shareAccessSelect.value = 'view';
+    renderShareLinkUI();
     renderShareUserList();
     shareModalBackdrop.classList.add('open');
 }
@@ -2195,7 +2231,10 @@ shareAddButton.addEventListener('click', function () {
     let username = shareUsernameInput.value.trim();
     if (!username) return;
     let state = getShareState(shareModalKey);
-    if (state.users.indexOf(username) === -1) state.users.push(username);
+    let canEdit = shareAccessSelect.value === 'edit';
+    let existing = state.users.find(function (u) { return u.username === username; });
+    if (existing) existing.canEdit = canEdit;
+    else state.users.push({ username: username, canEdit: canEdit });
     shareUsernameInput.value = '';
     renderShareUserList();
 });
@@ -2209,16 +2248,24 @@ shareUsernameInput.addEventListener('keydown', function (e) {
 
 shareCreateLinkButton.addEventListener('click', function () {
     let state = getShareState(shareModalKey);
-    if (!state.secretLink) {
-        state.secretLink = 'https://peergos.example/s/' + Math.random().toString(36).slice(2, 10);
-    }
-    shareLinkInput.value = state.secretLink;
-    shareLinkRow.classList.add('open');
+    state.secretLink = { url: 'https://peergos.example/s/' + Math.random().toString(36).slice(2, 10), canEdit: shareAccessSelect.value === 'edit' };
+    renderShareLinkUI();
+});
+
+shareLinkAccessSelect.addEventListener('change', function () {
+    let state = getShareState(shareModalKey);
+    if (state.secretLink) state.secretLink.canEdit = shareLinkAccessSelect.value === 'edit';
 });
 
 shareLinkCopyButton.addEventListener('click', function () {
     shareLinkInput.select();
     if (navigator.clipboard) navigator.clipboard.writeText(shareLinkInput.value);
+});
+
+shareLinkRevokeButton.addEventListener('click', function () {
+    let state = getShareState(shareModalKey);
+    state.secretLink = null;
+    renderShareLinkUI();
 });
 
 shareCloseButton.addEventListener('click', closeShareModal);

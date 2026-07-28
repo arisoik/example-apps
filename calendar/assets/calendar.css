@@ -16,10 +16,15 @@
 /* Hints that an empty cell is clickable to create an event - [data-date]
    is FullCalendar's own native attribute (unhashed by Breezy) on each day
    cell/column. Creating always lands in a writable calendar (the primary
-   one, by default), so this isn't conditional. */
-[data-date]:hover {
-  background: var(--fc-breezy-muted);
-  cursor: pointer;
+   one, by default), so this isn't conditional. (hover: hover) excludes
+   touch - a tapped cell otherwise looks stuck highlighted once the
+   modal that covered it closes, since touch has no real pointer to
+   leave and clear :hover. */
+@media (hover: hover) {
+  [data-date]:hover {
+    background: var(--fc-breezy-muted);
+    cursor: pointer;
+  }
 }
 
 /* Breezy has no text-overflow handling by default. [data-event-all-day]
@@ -107,8 +112,13 @@ body {
   cursor: pointer;
 }
 
-.calendar-list-item:hover {
-  background: var(--fc-breezy-faint);
+/* (hover: hover) excludes touch - same stuck-highlight issue as
+   [data-date] above (this row is a stable, long-lived element, not
+   rebuilt on every tap, so a stuck :hover would stay visible). */
+@media (hover: hover) {
+  .calendar-list-item:hover {
+    background: var(--fc-breezy-faint);
+  }
 }
 
 .calendar-list-item input[type="checkbox"] {
@@ -820,6 +830,19 @@ body {
   flex: 0 1 auto;
 }
 
+.share-section + .share-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--fc-breezy-border);
+}
+
+.share-section-heading {
+  margin: 0 0 8px;
+  font-size: .85em;
+  font-weight: 600;
+  color: var(--fc-breezy-muted-foreground);
+}
+
 .share-user-list {
   display: flex;
   flex-direction: column;
@@ -843,10 +866,12 @@ body {
   white-space: nowrap;
 }
 
-.event-modal .share-user-row button {
+.event-modal .share-user-row button,
+.event-modal #share-link-copy-button,
+.event-modal #share-link-revoke-button {
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -858,9 +883,17 @@ body {
   cursor: pointer;
 }
 
-.event-modal .share-user-row button:hover {
+.event-modal .share-user-row button:hover,
+.event-modal #share-link-revoke-button:hover {
   background: var(--fc-breezy-strong);
   color: var(--danger);
+}
+
+/* Copying isn't destructive - a neutral hover, not the danger red the
+   two remove/revoke buttons above use. */
+.event-modal #share-link-copy-button:hover {
+  background: var(--fc-breezy-strong);
+  color: var(--fc-breezy-secondary-icon-over);
 }
 
 .share-empty {
@@ -871,6 +904,7 @@ body {
 
 .share-add-row {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 8px;
 }
@@ -878,6 +912,16 @@ body {
 .share-add-row input {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* Overrides .event-modal select's own width: 100% - sized to content
+   instead, like the input next to them staying the flexible one.
+   share-link-access-select is excluded - it's on its own full-width
+   row, not sharing space with an input. */
+.share-add-row select,
+.share-user-row select {
+  flex: 0 0 auto;
+  width: auto;
 }
 
 .event-modal .share-link-button {
@@ -901,8 +945,12 @@ body {
   background: var(--fc-breezy-faint);
 }
 
+/* Column, not a single row - the URL needs its own full-width line (see
+   .share-link-url-row) rather than fighting the access <select> and
+   copy button for space, which used to truncate it. */
 .share-link-row {
   display: none;
+  flex-direction: column;
   gap: 8px;
   margin-top: 8px;
 }
@@ -911,7 +959,13 @@ body {
   display: flex;
 }
 
-.share-link-row input {
+.share-link-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-link-url-row input {
   flex: 1 1 auto;
   min-width: 0;
 }
