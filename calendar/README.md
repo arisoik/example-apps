@@ -89,6 +89,13 @@ items).
   - Known limitation: an ambiguous/nonexistent local time (fall-back's
     repeated hour, spring-forward's skipped one) resolves to one side
     deterministically - shared with most timezone libraries.
+  - A TZID from an imported file is an untrusted object key - lookups
+    use `Object.create(null)`/`hasOwnProperty`, not bare `{}` + `[key]`.
+    A TZID of `"__proto__"` used to read back `Object.prototype` instead
+    of `undefined`, crashing the whole import. The VTIMEZONE-fallback
+    RRULE parser also only allows `YEARLY`/`MONTHLY`/`WEEKLY`/`DAILY`
+    (same as the regular event importer) - an unbounded `FREQ=SECONDLY`
+    observance froze a real browser tab.
 
 ### Requirements
 

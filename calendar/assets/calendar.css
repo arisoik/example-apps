@@ -590,22 +590,6 @@ body {
   box-sizing: border-box;
 }
 
-@media (max-width: 650px) {
-  .fc {
-    font-size: .9em;
-  }
-
-  .fc-toolbar {
-    flex-wrap: wrap;
-  }
-
-  .fc-toolbar-center {
-    order: -1;
-    width: 100%;
-    justify-content: center;
-  }
-}
-
 @media (max-width: 450px) {
   .fc-toolbar {
     flex-direction: column;

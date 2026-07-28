@@ -2095,14 +2095,10 @@ function navigateToSelectedMonthYear() {
 gotoDateMonthInput.addEventListener('change', navigateToSelectedMonthYear);
 gotoDateYearInput.addEventListener('change', navigateToSelectedMonthYear);
 
-// 'change' alone (fires on blur) isn't enough on mobile: a numeric
-// keyboard often has no Enter/Done key that would blur the field, so
-// typing a year and having nothing happen reads as broken. Debounced
-// 'input' navigates automatically shortly after the user stops typing,
-// without needing an explicit confirm step at all. Only once 4 digits
-// are in, though - navigating after "1" or "20" would jump to year 1 or
-// 20 mid-type, before the user's actually finished entering the year
-// they meant.
+// 'change' alone (fires on blur) isn't enough on mobile - a numeric
+// keyboard often has no Enter/Done key to trigger it. Debounced 'input'
+// navigates automatically instead, but only once 4 digits are in -
+// otherwise "1" or "20" would jump to year 1 or 20 mid-type.
 let gotoDateYearInputTimer = null;
 gotoDateYearInput.addEventListener('input', function () {
     clearTimeout(gotoDateYearInputTimer);
