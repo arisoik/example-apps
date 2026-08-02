@@ -23,7 +23,8 @@ items).
   overflow menu (Import).
 - **`.ics` export/import**: RFC 5545, per-event or per-calendar. Bulk
   import with duplicate detection. Unsupported `RRULE` parts simplify to
-  plain `FREQ`+`INTERVAL`; `VALARM` is dropped. Timezone-aware (see
+  plain `FREQ`+`INTERVAL`, reported in the import summary alongside the
+  imported/skipped counts; `VALARM` is dropped. Timezone-aware (see
   Architecture decisions below) - a single event exports in UTC, a
   recurring series carries its own `TZID` plus a generated `VTIMEZONE`
   block so it stays pinned to local time across a DST change.
@@ -54,6 +55,11 @@ items).
   they're clickable. Pinch/double-tap zoom is off (`touch-action` in
   calendar.css - iOS Safari has ignored the viewport meta tag's
   `user-scalable` since iOS 10, so the meta tag alone isn't enough).
+- **Back button (Android)**: the hardware/gesture back button closes the
+  topmost open overlay (modal → popover → search → menu → sidebar
+  drawer) instead of leaving the app, same order as Escape. At the root
+  it shows a "press back again to exit" toast rather than exiting
+  outright (see Architecture decisions for the press-count caveat).
 
 ## For maintainers
 
@@ -82,6 +88,24 @@ items).
   `preventDefault()` on the triggering gesture itself - three earlier
   attempts that did each broke single-tap-opens-the-modal on real
   devices. Treat as load-bearing.
+- Back-button handling (`closeTopmostOverlay()`/
+  `armOverlayBackHandling()`/`armExitGuard()`) rides on
+  `history.pushState()`: the Android host maps its back button to
+  `webView.goBack()`, which unwinds same-document history entries as a
+  `popstate` without leaving the page. The "armed" flag is read from
+  `history.state` itself rather than a tracked boolean — overlays also
+  close via Escape/buttons/backdrop clicks, none of which touch history,
+  so a boolean goes stale and double-pushes. Overlays are detected with
+  a `MutationObserver` on `.open` classes, since each one opens from its
+  own call site with no shared choke point. The exit toast is a 3-press
+  approximation, not 2: a page can't close its own hosting Activity, so
+  it can only react to a press that has already navigated. An exact
+  2-press version needs a native-side change instead.
+- Timed events reuse Breezy's own light-tint chip formula (`color-mix(in
+  oklab, …)`, taken from its vendored `theme.css`) so they match the
+  treatment Breezy already gives all-day/multi-day events. A solid fill
+  with per-color computed contrast text was tried and reverted —
+  Breezy's default event text color is used as-is.
 - `.ics` stays plain RFC 5545.
 - Timezone-aware export/import (calendar.js, "Timezone conversion" and
   ".ics" sections) - derived entirely from the browser's own `Intl` tz

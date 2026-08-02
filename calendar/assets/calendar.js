@@ -656,10 +656,6 @@ function icsUtcStamp(date) {
     return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 }
 
-function icsUtcNow() {
-    return icsUtcStamp(new Date());
-}
-
 // RFC 5545 UTC-OFFSET ("-0500", "+0530"), not Intl's "GMT-05:00" form.
 function formatIcsUtcOffset(minutes) {
     let sign = minutes < 0 ? '-' : '+';
@@ -818,7 +814,7 @@ function recurringDurationMs(eventId) {
 
 function eventToIcsLines(ev) {
     let uid = isNativeEventId(ev.id) ? ev.id + PEERGOS_UID_SUFFIX : ev.id;
-    let lines = ['BEGIN:VEVENT', 'UID:' + uid, 'DTSTAMP:' + icsUtcNow()];
+    let lines = ['BEGIN:VEVENT', 'UID:' + uid, 'DTSTAMP:' + icsUtcStamp(new Date())];
     let recur = ev.extendedProps.recur;
 
     if (recur) {
@@ -1095,7 +1091,7 @@ function parseIcsRRuleValue(value, dtstartTzid, tzResolver) {
 
     // Only two BYDAY shapes are representable by the UI: plain weekday
     // codes on WEEKLY, or one ordinal code on MONTHLY. Anything else
-    // (BYMONTHDAY/BYMONTH/etc, mixed ordinals) is dropped with a warning.
+    // (BYMONTHDAY/BYMONTH/etc, mixed ordinals) is dropped.
     let codes = props.BYDAY ? props.BYDAY.split(',') : [];
     let isPlainCode = function (c) { return /^(SU|MO|TU|WE|TH|FR|SA)$/.test(c); };
     let isOrdinalCode = function (c) { return /^-?\d+(SU|MO|TU|WE|TH|FR|SA)$/.test(c); };
@@ -1105,7 +1101,10 @@ function parseIcsRRuleValue(value, dtstartTzid, tzResolver) {
     let hasOtherByParts = props.BYMONTHDAY || props.BYMONTH || props.BYYEARDAY || props.BYWEEKNO || props.BYSETPOS;
 
     if ((props.BYDAY && !bydaySupported) || hasOtherByParts) {
-        console.warn('Imported RRULE uses BY* parts not supported by this app\'s UI - simplified to plain ' + freq + ' recurrence: ' + value);
+        // Temporary marker, not part of the recurrence data model -
+        // parseIcsVevent strips it and re-stamps it on the event payload,
+        // on its way to the import summary (formatImportSummary).
+        recur.simplified = true;
     } else if (bydaySupported) {
         recur.byday = codes;
     }
@@ -1174,7 +1173,15 @@ function parseIcsVevent(rawLines, tzResolver) {
 
     let uidLine = find('UID');
     let id = uidLine ? idFromIcsUid(uidLine.value) : nextEventId();
-    if (recur) return buildRecurringEventPayload(id, title, allDay, extra, recur, end.getTime() - start.getTime());
+    if (recur) {
+        // Moved off `recur` onto the payload: `recur` is persisted as
+        // extendedProps.recur, so the marker must not travel with it.
+        let simplified = !!recur.simplified;
+        delete recur.simplified;
+        let data = buildRecurringEventPayload(id, title, allDay, extra, recur, end.getTime() - start.getTime());
+        data.__recurSimplified = simplified;
+        return data;
+    }
     return buildPlainEventPayload(id, title, allDay, start, end, extra);
 }
 
@@ -1215,6 +1222,9 @@ function parseIcsFile(text) {
     // One malformed/hostile VEVENT throwing (unexpected data shape,
     // anything not already handled by returning null) shouldn't cost
     // every other, otherwise-valid event in the same file.
+    // __recurSimplified is deliberately left on the returned events: only
+    // the caller knows which are actually added vs. skipped as duplicates,
+    // and a skipped one must not count as imported (see icsFileInput).
     let events = [];
     let failed = 0;
     veventBlocks.forEach(function (blockLines) {
@@ -1458,12 +1468,7 @@ function jumpToSearchResult(ev, jumpDate) {
         applyCalendarVisibility();
         renderCalendarList();
     }
-    // Same slide transition as swipe/Previous/Next/Today - only if the
-    // view actually changes.
-    let viewChanging = jumpDate < calendar.view.activeStart || jumpDate >= calendar.view.activeEnd;
-    if (viewChanging) freezeForViewTransition(jumpDate < calendar.view.activeStart ? 'prev' : 'next');
-    calendar.gotoDate(jumpDate);
-    if (viewChanging) settleViewTransition();
+    gotoDateWithTransition(jumpDate);
     let instance = calendar.getEvents().filter(function (e) { return e.id === ev.id; })
         .reduce(function (best, e) {
             return !best || Math.abs(e.start - jumpDate) < Math.abs(best.start - jumpDate) ? e : best;
@@ -1688,6 +1693,10 @@ function openCalendarModal(mode, cal) {
     calendarNameInput.value = mode === 'edit' ? cal.name : '';
     renderColorSwatches(mode === 'edit' ? cal.color : CALENDAR_COLORS[0]);
     calendarDeleteButton.style.display = (mode === 'edit' && !cal.primary) ? '' : 'none';
+    // Both entry points to this modal live inside the sidebar, which on
+    // mobile is a drawer with a higher z-index than the modal - it would
+    // otherwise stay open on top of it. No-op on desktop (never .open).
+    closeSidebar();
     calendarModalBackdrop.classList.add('open');
     calendarNameInput.focus();
 }
@@ -2150,11 +2159,7 @@ function navigateToSelectedMonthYear() {
     if (!year) return; // empty/cleared year field - not a real value yet
     let month = parseInt(gotoDateMonthInput.value, 10);
     let day = Math.min(calendar.getDate().getDate(), new Date(year, month + 1, 0).getDate());
-    let jumpDate = new Date(year, month, day);
-    let viewChanging = jumpDate < calendar.view.activeStart || jumpDate >= calendar.view.activeEnd;
-    if (viewChanging) freezeForViewTransition(jumpDate < calendar.view.activeStart ? 'prev' : 'next');
-    calendar.gotoDate(jumpDate);
-    if (viewChanging) settleViewTransition();
+    gotoDateWithTransition(new Date(year, month, day));
 }
 
 gotoDateMonthInput.addEventListener('change', navigateToSelectedMonthYear);
@@ -2194,11 +2199,16 @@ overflowImportButton.addEventListener('click', function () {
 
 overflowMenuVersion.textContent = 'FullCalendar v' + FullCalendar.version;
 
-function formatImportSummary(imported, duplicates, failed) {
+function formatImportSummary(imported, duplicates, failed, simplified) {
     if (imported === 0 && duplicates === 0 && failed === 0) return 'No events found in this file.';
     let parts = [imported === 1 ? 'Imported 1 event.' : 'Imported ' + imported + ' events.'];
     if (duplicates > 0) parts.push(duplicates === 1 ? '1 already existed and was skipped.' : duplicates + ' already existed and were skipped.');
     if (failed > 0) parts.push(failed === 1 ? '1 could not be read and was skipped.' : failed + ' could not be read and were skipped.');
+    // Recurrence with BY* parts this app's UI can't represent (see
+    // parseIcsRRuleValue) still imports, but on a plain repeat - worth
+    // saying so, since the occurrence dates can then differ from the
+    // source file.
+    if (simplified > 0) parts.push(simplified === 1 ? '1 event had its recurrence simplified - some repeat options aren\'t supported.' : simplified + ' events had their recurrence simplified - some repeat options aren\'t supported.');
     return parts.join(' ');
 }
 
@@ -2216,16 +2226,20 @@ icsFileInput.addEventListener('change', function () {
         let parsed = parseIcsFile(reader.result);
         let imported = 0;
         let duplicates = 0;
+        let simplified = 0;
         parsed.events.forEach(function (data) {
+            let wasSimplified = !!data.__recurSimplified;
+            delete data.__recurSimplified;
             if (calendar.getEventById(data.id)) {
                 duplicates++;
             } else {
                 calendar.addEvent(data);
                 imported++;
+                if (wasSimplified) simplified++;
             }
         });
         if (imported > 0) applyCalendarVisibility();
-        openImportSummaryModal(formatImportSummary(imported, duplicates, parsed.failed));
+        openImportSummaryModal(formatImportSummary(imported, duplicates, parsed.failed, simplified));
     };
     reader.onerror = function () {
         icsFileInput.value = '';
@@ -2268,10 +2282,7 @@ sidebarToggleButton.addEventListener('click', function () {
     }
 });
 
-sidebarBackdrop.addEventListener('click', function () {
-    sidebar.classList.remove('open');
-    sidebarBackdrop.classList.remove('open');
-});
+sidebarBackdrop.addEventListener('click', closeSidebar);
 
 addCalendarButton.addEventListener('click', function () {
     openCalendarModal('create', null);
@@ -2398,8 +2409,17 @@ document.addEventListener('click', function (e) {
     }
 }, true);
 
-document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
+// The mobile drawer is two elements moving together (#sidebar itself
+// slides in via its own .open, #sidebar-backdrop dims behind it) -
+// closing only one leaves the drawer visually stuck open.
+function closeSidebar() {
+    sidebar.classList.remove('open');
+    sidebarBackdrop.classList.remove('open');
+}
+
+// Shared by Escape and the Android back button below - closes whichever
+// overlay is currently on top, most-specific first.
+function closeTopmostOverlay() {
     if (confirmModalBackdrop.classList.contains('open')) closeConfirmModal();
     else if (importSummaryModalBackdrop.classList.contains('open')) closeImportSummaryModal();
     else if (shareModalBackdrop.classList.contains('open')) closeShareModal();
@@ -2408,6 +2428,78 @@ document.addEventListener('keydown', function (e) {
     else if (calendarModalBackdrop.classList.contains('open')) closeCalendarModal();
     else if (popover.classList.contains('open')) hideEventPopover();
     else if (searchResults.classList.contains('open')) closeSearchResults();
+    else if (document.querySelector('.calendar-menu.open')) closeAllCalendarMenus();
+    else if (sidebarBackdrop.classList.contains('open')) closeSidebar();
+}
+
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeTopmostOverlay();
+});
+
+// The Android host app's MainActivity handles the hardware/gesture back
+// button as webView.canGoBack() ? webView.goBack() : super.onBackPressed()
+// - goBack() unwinds same-document history.pushState() entries as a
+// popstate here without leaving the page, only falling through to
+// actually exiting once there are none left. So: push one entry the
+// moment any overlay opens, and have popstate close that overlay instead
+// of letting the "navigation" happen. There's no single choke point
+// where every overlay opens (each sets its own .open class from its own
+// call site), so a MutationObserver arms this reactively rather than
+// hooking every open*() function individually.
+function anyOverlayOpen() {
+    return !!document.querySelector('.event-modal-backdrop.open, .calendar-menu.open, #event-popover.open, #search-results.open, #sidebar-backdrop.open');
+}
+
+// history.state itself is the "armed" flag, not a hand-tracked variable -
+// overlays also close via Escape/buttons/backdrop clicks, none of which
+// touch history, so a separate boolean would go stale the moment one of
+// those paths ran and desync from where we actually are in history.
+function armOverlayBackHandling() {
+    if (history.state && history.state.calendarOverlay) return;
+    history.pushState({ calendarOverlay: true }, '');
+}
+
+new MutationObserver(function () {
+    if (anyOverlayOpen()) armOverlayBackHandling();
+}).observe(document.body, { attributes: true, attributeFilter: ['class'], subtree: true });
+
+// Same idea as the overlay guard above, for the root/idle state. A page
+// can't force its own hosting Activity to exit (no web API for that), so
+// this can only react to a back press that has already navigated - which
+// makes "confirm, then exit" a 3-press sequence (1st: toast + re-arm,
+// 2nd: don't re-arm, so canGoBack() is finally false, 3rd: falls through
+// to super.onBackPressed() natively). Approximate, but stays entirely
+// inside this app; an exact 2-press version needs a native-side change.
+let EXIT_CONFIRM_MS = 2000;
+let exitToast = document.getElementById('exit-toast');
+let lastIdleBackPressTime = 0;
+
+function armExitGuard() {
+    if (!(history.state && history.state.calendarRoot)) history.pushState({ calendarRoot: true }, '');
+}
+
+armExitGuard();
+
+function handleIdleBackPress() {
+    let now = Date.now();
+    if (now - lastIdleBackPressTime < EXIT_CONFIRM_MS) return;
+    lastIdleBackPressTime = now;
+    exitToast.classList.add('visible');
+    setTimeout(function () { exitToast.classList.remove('visible'); }, EXIT_CONFIRM_MS);
+    armExitGuard();
+}
+
+window.addEventListener('popstate', function () {
+    if (!anyOverlayOpen()) {
+        handleIdleBackPress();
+        return;
+    }
+    closeTopmostOverlay();
+    // Something can still be open underneath (e.g. the sidebar drawer,
+    // which isn't part of the modal-priority chain above) - re-arm so
+    // the next back press closes that too, instead of leaving the app
+    // with it still open.
+    if (anyOverlayOpen()) armOverlayBackHandling();
 });
 
 form.addEventListener('submit', function (e) {
@@ -2465,35 +2557,52 @@ renderCalendarList();
 
 // eventClick fires on both clicks of a double-click - the first click's
 // popover is deferred behind a short timer, a second click cancels it
-// and opens edit instead. Desktop-only (see isTouchDevice below).
+// and opens edit instead. Desktop-only (see isTouchDevice).
 let eventClickTimer = null;
 
-// Fixes Breezy's day-grid (Month/Year) event rows: no color dot by
-// default, and the time label right-aligned instead of flush-left.
-// Idempotent - re-run on every resize below, since Breezy rebuilds this
-// content on resize without re-firing eventDidMount.
+// Day-grid time text is always e.g. "7a"/"9:30a"/"2p" - no space,
+// optional minutes, single am/pm letter.
+let DAY_GRID_TIME_PATTERN = /^\d{1,2}(:\d{2})?[ap]$/i;
+
+// Fixes Breezy's day-grid (Month/Year) event rows: the time label is
+// right-aligned by default instead of flush-left. Idempotent - Breezy
+// re-renders this content without re-firing eventDidMount, so
+// watchDayGridEventLayout() below re-applies it.
 function fixDayGridEventLayout(el) {
     if (el.dataset.eventAllDay === '1') return;
     let wrapper = el.firstElementChild;
     if (!wrapper) return;
     wrapper.style.justifyContent = 'flex-start';
-    let existingDot = wrapper.querySelector('.fc-event-color-dot');
-    if (existingDot) existingDot.remove();
     let divs = Array.prototype.filter.call(wrapper.children, function (c) { return c.tagName === 'DIV'; });
     if (!divs.length) return;
-    let dot = document.createElement('span');
-    dot.className = 'fc-event-color-dot';
-    dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;flex:0 0 auto;order:0;background-color:' + el.style.getPropertyValue('--fc-event-color') + ';';
-    wrapper.insertBefore(dot, wrapper.firstChild);
-    let timeEl = divs.length > 1 ? divs[0] : null;
-    let titleEl = divs.length > 1 ? divs[1] : divs[0];
-    titleEl.style.order = '2';
+    // Identified by content, not position (divs[0]/divs[1]) - Breezy can
+    // render the time div alone before the title div exists, so position
+    // is not a reliable way to tell the two apart.
+    let timeEl = divs.length > 1 ? divs.find(function (d) { return DAY_GRID_TIME_PATTERN.test(d.textContent.trim()); }) : null;
+    let titleEl = divs.find(function (d) { return d !== timeEl; });
+    if (titleEl) titleEl.style.order = '2';
     if (timeEl) {
         timeEl.style.order = '1';
         // Space-based, not a fixed breakpoint - only drop the time label
-        // if dot+time+title would actually overflow the cell.
+        // if time+title would actually overflow the cell.
         timeEl.style.display = wrapper.scrollWidth > wrapper.clientWidth ? 'none' : '';
     }
+}
+
+// Breezy re-renders an event's inner content sometime after mount, on
+// both Month and Year views and independent of any window resize (a
+// synthetic resize event doesn't reliably catch it), silently undoing
+// the ordering fixDayGridEventLayout() just applied - so watch for the
+// re-render itself rather than guess when it happens. childList/
+// characterData only, never attributes: observing our own style.order
+// writes here would infinite-loop.
+function watchDayGridEventLayout(el) {
+    // Observes el, not el.firstElementChild - the re-render can swap the
+    // wrapper div out entirely, and el is the part that stays stable
+    // across it (eventDidMount doesn't re-fire).
+    new MutationObserver(function () {
+        fixDayGridEventLayout(el);
+    }).observe(el, { childList: true, subtree: true, characterData: true });
 }
 
 let calendarEl = document.getElementById('calendar');
@@ -2524,6 +2633,7 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
         info.el.dataset.eventAllDay = info.event.allDay ? '1' : '0';
         if (info.view.type === 'dayGridMonth' || info.view.type === 'multiMonthYear') {
             fixDayGridEventLayout(info.el);
+            watchDayGridEventLayout(info.el);
         }
     },
     // dateClick, not selectable/select - plain click/tap only, no drag.
@@ -2589,6 +2699,17 @@ function settleViewTransition() {
     calendarEl.style.transform = 'translateX(0)';
 }
 
+// Shared by search-result jumps and the go-to-date picker: same slide
+// transition as swipe/Previous/Next, but only when the target actually
+// falls outside the view currently on screen.
+function gotoDateWithTransition(jumpDate) {
+    let direction = jumpDate < calendar.view.activeStart ? 'prev'
+        : (jumpDate >= calendar.view.activeEnd ? 'next' : null);
+    if (direction) freezeForViewTransition(direction);
+    calendar.gotoDate(jumpDate);
+    if (direction) settleViewTransition();
+}
+
 // Swipe left/right to go to the next/previous view. touchend only, never
 // preventDefault, so it doesn't interfere with vertical scrolling.
 let touchStartX = null;
@@ -2639,28 +2760,22 @@ calendarEl.addEventListener('click', function (e) {
 
 // Delegated (title re-renders on every navigation, see datesSet above) -
 // mouse/touch via click, keyboard via Enter/Space since it's a real
-// tabbable role="button" now, not a native <button>.
+// tabbable role="button" now, not a native <button>. Re-activating the
+// trigger while the picker is open closes it, rather than re-opening it
+// in place (which read as broken).
+function toggleGotoDatePicker(trigger) {
+    if (gotoDateMenu.classList.contains('open')) closeAllCalendarMenus();
+    else openGotoDatePicker(trigger);
+}
+
 calendarEl.addEventListener('click', function (e) {
     let trigger = e.target.closest('.goto-date-trigger');
-    if (trigger) openGotoDatePicker(trigger);
+    if (trigger) toggleGotoDatePicker(trigger);
 });
 calendarEl.addEventListener('keydown', function (e) {
     let trigger = e.target.closest('.goto-date-trigger');
     if ((e.key === 'Enter' || e.key === ' ') && trigger) {
         e.preventDefault();
-        openGotoDatePicker(trigger);
+        toggleGotoDatePicker(trigger);
     }
-});
-
-// Re-applies fixDayGridEventLayout() on resize/rotation, not just at
-// mount. Debounced since resize can fire many times in quick succession.
-let dayGridLayoutFixTimer = null;
-window.addEventListener('resize', function () {
-    clearTimeout(dayGridLayoutFixTimer);
-    dayGridLayoutFixTimer = setTimeout(function () {
-        if (calendar.view.type !== 'dayGridMonth' && calendar.view.type !== 'multiMonthYear') return;
-        document.querySelectorAll('[data-search-event-id]').forEach(function (el) {
-            fixDayGridEventLayout(el);
-        });
-    }, 150);
 });

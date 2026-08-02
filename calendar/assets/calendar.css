@@ -60,8 +60,8 @@
   white-space: nowrap;
 }
 
-/* Timed events: title is always the last direct child (time+title, or
-   dot+time+title in Month/Year - see fixDayGridEventLayout()). */
+/* Timed events: the title is always the last direct child (time+title -
+   see fixDayGridEventLayout()). */
 [data-event-all-day="0"] > div:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -454,6 +454,18 @@ body {
     border-radius: 12px 12px 0 0;
     padding: 16px;
     padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  /* Compacts FullCalendar's own header toolbar (title row + view-tab
+     row) - its 16px padding/gap costs vertical space that's precious on
+     a phone. [role="heading"] is FullCalendar's own stable role (Breezy
+     hashes everything else) and :has() reaches its hashed-class
+     container without naming it; `#calendar > div` keeps this off the
+     grid below, which has no [role="heading"] descendant. Button padding
+     is left alone - already tight as a touch target. */
+  #calendar > div:has([role="heading"]) {
+    padding: 8px 16px;
+    gap: 8px;
   }
 }
 
@@ -1145,5 +1157,55 @@ body {
     right: 8px;
     width: auto;
     max-width: none;
+  }
+}
+
+/* "Press back again to exit" - see handleIdleBackPress() in calendar.js.
+   Fades rather than display:none, so the timed hide (EXIT_CONFIRM_MS
+   there) has something to transition. */
+#exit-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--fc-breezy-popover);
+  color: var(--fc-breezy-foreground);
+  padding: 10px 20px;
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
+  font-size: .9em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+  z-index: 1200;
+}
+
+#exit-toast.visible {
+  opacity: 1;
+}
+
+/* Breezy's own event text defaults to 11-12px in Month/Week/Day/Year -
+   too small per user feedback. [data-search-event-id] is this app's own
+   attribute (eventDidMount, calendar.js), stable across Breezy's hashed
+   class names; a descendant element selector off it already outranks a
+   single hashed class, so no !important. Agenda view is already 14px. */
+[data-search-event-id] div,
+[data-search-event-id] span {
+  font-size: 13px;
+}
+
+/* Timed events get the same light-tint chip Breezy already gives
+   all-day/multi-day events by default - Breezy's own formula (theme.css,
+   .fc-breezy-GjO), reused here because that class is hashed and timed
+   events don't carry it. Deliberately no per-color contrast text:
+   Breezy's own default reads fine against its own light tints, which a
+   solid full-saturation fill would not. */
+[data-event-all-day="0"] {
+  background-color: var(--fc-event-color);
+}
+
+@supports (color: color-mix(in lab, red, red)) {
+  [data-event-all-day="0"] {
+    background-color: color-mix(in oklab, var(--fc-event-color) 20%, var(--fc-breezy-background));
   }
 }
