@@ -133,9 +133,7 @@ function mockDate(dayOffset, hour, minute) {
 
 let gymStart = mockDate(0, 7, 0);
 
-let url = new URL(window.location.href);
-let theme = url.searchParams.get('theme');
-let isDarkMode = theme === 'dark-mode';
+let isDarkMode = new URL(window.location.href).searchParams.get('theme') === 'dark-mode';
 if (isDarkMode) document.documentElement.setAttribute('data-color-scheme', 'dark');
 
 // Same signal as the .calendar-menu-button fix in calendar.css - turns
@@ -372,7 +370,6 @@ function updateRepeatVisibility() {
     repeatCountRow.style.display = (repeating && endMode === 'count') ? '' : 'none';
     repeatWeekdayRow.style.display = (freq === 'weekly') ? '' : 'none';
     repeatMonthlyModeInput.style.display = (freq === 'monthly') ? '' : 'none';
-    // Nothing checked yet defaults to the form's start-date weekday.
     if (freq === 'weekly' && !selectedWeekdays().length) setSelectedWeekdays([weekdayCodeOf(formStartDate())]);
     if (freq === 'monthly') updateMonthlyModeLabels();
 }
@@ -893,20 +890,30 @@ function emailEventAsMailto(ev) {
 }
 
 // Walks event-store defs, not calendar.getEvents() - a recurring series
-// with no occurrence in the current view still has a def.
-function exportCalendarAsIcs(calendarId) {
-    let cal = getCalendarById(calendarId);
-    if (!cal) return;
+// with no occurrence in the current view still has a def. Defs are
+// per-occurrence, hence the dedupe by publicId. An id can come from an
+// imported UID, so the seen-set is Object.create(null) (see
+// isRecognizedIanaZone for the same reasoning).
+function allStoredEvents() {
     let defs = calendar.getCurrentData().eventStore.defs;
-    let seen = {};
-    let veventLines = [];
+    let seen = Object.create(null);
+    let events = [];
     Object.keys(defs).forEach(function (key) {
         let publicId = defs[key].publicId;
         if (!publicId || seen[publicId]) return;
         seen[publicId] = true;
         let ev = calendar.getEventById(publicId);
-        if (!ev || ev.extendedProps.calendarId !== calendarId) return;
-        veventLines = veventLines.concat(eventToIcsLines(ev));
+        if (ev) events.push(ev);
+    });
+    return events;
+}
+
+function exportCalendarAsIcs(calendarId) {
+    let cal = getCalendarById(calendarId);
+    if (!cal) return;
+    let veventLines = [];
+    allStoredEvents().forEach(function (ev) {
+        if (ev.extendedProps.calendarId === calendarId) veventLines = veventLines.concat(eventToIcsLines(ev));
     });
     downloadIcsFile(icsFileNameFor(cal.name), veventLines);
 }
@@ -1265,17 +1272,21 @@ function describeRecur(recur) {
     return text;
 }
 
+// Built once, not per call - an Intl.DateTimeFormat is expensive to
+// construct, and search rebuilds every result's meta line on every
+// keystroke.
+let DATE_FORMAT = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+let TIME_FORMAT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+
 function formatPopoverTime(ev) {
-    let dateFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     if (ev.allDay) {
         let lastDay = toFormEnd(ev.end || ev.start, true);
         if (toDateInputValue(lastDay) === toDateInputValue(ev.start)) {
-            return dateFmt.format(ev.start) + ' · All day';
+            return DATE_FORMAT.format(ev.start) + ' · All day';
         }
-        return dateFmt.format(ev.start) + ' – ' + dateFmt.format(lastDay) + ' · All day';
+        return DATE_FORMAT.format(ev.start) + ' – ' + DATE_FORMAT.format(lastDay) + ' · All day';
     }
-    let timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
-    return dateFmt.format(ev.start) + ' · ' + timeFmt.format(ev.start) + ' – ' + timeFmt.format(ev.end || ev.start);
+    return DATE_FORMAT.format(ev.start) + ' · ' + TIME_FORMAT.format(ev.start) + ' – ' + TIME_FORMAT.format(ev.end || ev.start);
 }
 
 // Finds an event's current DOM element by id (data-search-event-id, set
@@ -1340,22 +1351,15 @@ function hideEventPopover() {
 }
 
 // Client-side only, behind one function so a real backend API can swap
-// in later. Walks event-store defs, not calendar.getEvents(), so a
-// recurring series stays searchable from any month.
+// in later. allStoredEvents(), not calendar.getEvents(), so a recurring
+// series stays searchable from any month.
 let MIN_SEARCH_QUERY_LENGTH = 2;
 
 function getSearchableEvents(query) {
     let q = query.trim().toLowerCase();
     if (q.length < MIN_SEARCH_QUERY_LENGTH) return [];
-    let defs = calendar.getCurrentData().eventStore.defs;
-    let seen = {};
     let results = [];
-    Object.keys(defs).forEach(function (key) {
-        let publicId = defs[key].publicId;
-        if (!publicId || seen[publicId]) return;
-        seen[publicId] = true;
-        let ev = calendar.getEventById(publicId);
-        if (!ev) return;
+    allStoredEvents().forEach(function (ev) {
         let title = (ev.title || '').toLowerCase();
         let location = (ev.extendedProps.location || '').toLowerCase();
         let description = (ev.extendedProps.description || '').toLowerCase();
@@ -1368,12 +1372,8 @@ function getSearchableEvents(query) {
 }
 
 function formatSearchResultMeta(ev, jumpDate, cal) {
-    let dateFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    let text = dateFmt.format(jumpDate);
-    if (!ev.allDay) {
-        let timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
-        text += ' · ' + timeFmt.format(jumpDate);
-    }
+    let text = DATE_FORMAT.format(jumpDate);
+    if (!ev.allDay) text += ' · ' + TIME_FORMAT.format(jumpDate);
     if (ev.extendedProps.location) text += ' · ' + ev.extendedProps.location;
     if (cal) text += ' · ' + cal.name;
     return text;
@@ -1722,8 +1722,7 @@ function closeImportSummaryModal() {
     importSummaryModalBackdrop.classList.remove('open');
 }
 
-// Mock sharing state, keyed by 'event:<id>'/'calendar:<id>'. Read-only
-// per-user sharing and a secret link only - no write-access option.
+// Mock sharing state, keyed by 'event:<id>'/'calendar:<id>'.
 let mockShares = {};
 let shareModalKey = null;
 
@@ -1837,6 +1836,71 @@ function performScopedDelete(ev, scope) {
     }
 }
 
+// A tap isn't over when the handler that opens the modal runs: for touch,
+// dateClick fires on touchend and the browser still has that gesture's
+// trailing mousedown/mouseup/click to deliver. Those hit-test against
+// whatever now sits under the point that was tapped - on a phone the
+// modal covers the screen, so it's usually one of its <select>s, which
+// pops its native dropdown with the user never having touched it.
+//
+// The trailing events are recognised by point and time and cancelled
+// here. Deliberately nothing more: the triggering gesture's own events
+// are left alone (FullCalendar is still mid-gesture on them), and so is
+// the modal's hit-testing - taking the modal out of hit-testing instead
+// only sends the trailing click through to the backdrop, whose
+// click-outside listener then closes the modal that just opened.
+let TAP_TAIL_MS = 400;
+let TAP_TAIL_RADIUS = 32;
+let lastPointerPoint = { x: 0, y: 0, time: 0 };
+let modalTapGuard = { x: 0, y: 0, time: 0 };
+
+function recordPointerPoint(e) {
+    let p = e.changedTouches ? e.changedTouches[0] : e;
+    if (p) lastPointerPoint = { x: p.clientX, y: p.clientY, time: Date.now() };
+}
+
+// Passive: these only read the gesture, they can't cancel any part of it.
+['pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function (type) {
+    document.addEventListener(type, recordPointerPoint, { capture: true, passive: true });
+});
+
+// Arms only when the modal is opening out of a gesture still in flight -
+// a modal opened from the keyboard has no trailing events to guard against.
+function armModalTapGuard() {
+    let now = Date.now();
+    modalTapGuard = (now - lastPointerPoint.time <= TAP_TAIL_MS)
+        ? { x: lastPointerPoint.x, y: lastPointerPoint.y, time: now }
+        : { x: 0, y: 0, time: 0 };
+}
+
+function isModalTapTail(e) {
+    if (!modalTapGuard.time || Date.now() - modalTapGuard.time > TAP_TAIL_MS) return false;
+    // A keyboard-triggered click reports no click count and (0, 0).
+    if (e.type === 'click' && !e.detail) return false;
+    if (!modalBackdrop.classList.contains('open') || !modalBackdrop.contains(e.target)) return false;
+    let dx = e.clientX - modalTapGuard.x;
+    let dy = e.clientY - modalTapGuard.y;
+    return dx * dx + dy * dy <= TAP_TAIL_RADIUS * TAP_TAIL_RADIUS;
+}
+
+['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+        if (!isModalTapTail(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+    }, true);
+});
+
+// Backstop for browsers that open a dropdown off the tap itself rather
+// than off a cancellable mouse event: nothing else focuses a select this
+// soon after the modal opens, so this focus is always the stray tap.
+document.addEventListener('focusin', function (e) {
+    if (!modalTapGuard.time || Date.now() - modalTapGuard.time > TAP_TAIL_MS) return;
+    if (e.target.tagName !== 'SELECT' || !modalBackdrop.contains(e.target)) return;
+    e.target.blur();
+    titleInput.focus();
+}, true);
+
 function openModal(mode, opts) {
     editingEvent = mode === 'edit' ? opts.event : null;
     editScope = opts.scope || 'all';
@@ -1904,6 +1968,7 @@ function openModal(mode, opts) {
     // editing a single split-off occurrence can't independently repeat
     repeatSection.style.display = (editScope === 'this') ? 'none' : '';
 
+    armModalTapGuard();
     modalBackdrop.classList.add('open');
     titleInput.focus();
 }
@@ -2129,7 +2194,6 @@ overflowImportButton.addEventListener('click', function () {
 
 overflowMenuVersion.textContent = 'FullCalendar v' + FullCalendar.version;
 
-// Skips (rather than overwrites) an event whose id already exists.
 function formatImportSummary(imported, duplicates, failed) {
     if (imported === 0 && duplicates === 0 && failed === 0) return 'No events found in this file.';
     let parts = [imported === 1 ? 'Imported 1 event.' : 'Imported ' + imported + ' events.'];
@@ -2314,10 +2378,9 @@ shareModalBackdrop.addEventListener('click', function (e) {
 // Closes an open calendar "..." menu on any click outside it. Capture
 // phase, not bubble: eventClick's stopPropagation() would otherwise hide
 // clicks on events from a bubble-phase listener here.
+let MENU_INTERNAL_SELECTOR = '.calendar-menu button, .calendar-menu-button, #overflow-menu-button, #overflow-menu-version, #goto-date-menu, .goto-date-trigger';
 document.addEventListener('click', function (e) {
-    if (!e.target.closest('.calendar-menu button') && !e.target.closest('.calendar-menu-button') && !e.target.closest('#overflow-menu-button') && !e.target.closest('#overflow-menu-version') && !e.target.closest('#goto-date-menu') && !e.target.closest('.goto-date-trigger')) {
-        closeAllCalendarMenus();
-    }
+    if (!e.target.closest(MENU_INTERNAL_SELECTOR)) closeAllCalendarMenus();
 }, true);
 
 // Closes the search results dropdown on any click outside #search-bar.
@@ -2326,54 +2389,14 @@ document.addEventListener('click', function (e) {
     if (!searchBar.contains(e.target)) closeSearchResults();
 }, true);
 
-// Clicking outside the popover closes it without swallowing the click,
-// so switching straight to a different event works in one click.
+// Clicking outside the popover closes it without swallowing the click -
+// whatever's underneath (another event, a day cell, a toolbar button)
+// still fires in the same click, same as menus/search/the date picker.
 document.addEventListener('click', function (e) {
     if (popover.classList.contains('open') && !popover.contains(e.target)) {
         hideEventPopover();
     }
 }, true);
-
-// Exception: dismissing the popover/menu shouldn't also create a new
-// event via the click underneath it. On touch, stopPropagation() alone
-// doesn't work - it only blocks this touchstart, but the browser still
-// synthesizes a trailing click regardless, which is what dateClick
-// actually fires from. preventDefault() on touchstart suppresses that
-// synthetic click, but the outside-click-closes-menu listeners below
-// also depend on that same click - so on touch this handler has to
-// close the container itself instead.
-function preventClickThrough(container, isTriggerTarget, closeContainer) {
-    return function (e) {
-        if (!container.classList.contains('open')) return;
-        if (container.contains(e.target)) return;
-        if (isTriggerTarget(e.target)) return;
-        e.stopPropagation();
-        if (e.type === 'touchstart') {
-            e.preventDefault();
-            closeContainer();
-        }
-    };
-}
-
-// { passive: false } is required here, not just { capture: true } - Chrome
-// defaults document-level touchstart listeners to passive (a scroll-perf
-// intervention), which would otherwise silently ignore preventDefault().
-let touchGuardOptions = { capture: true, passive: false };
-
-let preventPopoverClickThrough = preventClickThrough(popover, function (target) {
-    return !!target.closest('[data-search-event-id]');
-}, hideEventPopover);
-document.addEventListener('mousedown', preventPopoverClickThrough, true);
-document.addEventListener('touchstart', preventPopoverClickThrough, touchGuardOptions);
-
-// Same reasoning, for the goto-date menu - dismissing it (as a mobile
-// bottom sheet, tapping "outside" it often means tapping a day cell
-// still visible above it) shouldn't also create a new event underneath.
-let preventGotoDateClickThrough = preventClickThrough(gotoDateMenu, function (target) {
-    return !!target.closest('.goto-date-trigger');
-}, closeAllCalendarMenus);
-document.addEventListener('mousedown', preventGotoDateClickThrough, true);
-document.addEventListener('touchstart', preventGotoDateClickThrough, touchGuardOptions);
 
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;

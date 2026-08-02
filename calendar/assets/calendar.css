@@ -19,11 +19,35 @@
    one, by default), so this isn't conditional. (hover: hover) excludes
    touch - a tapped cell otherwise looks stuck highlighted once the
    modal that covered it closes, since touch has no real pointer to
-   leave and clear :hover. */
+   leave and clear :hover.
+
+   :not(:has([role="link"]:hover, [data-search-event-id]:hover,
+   [style*="inset-inline"]:hover)) - the day-number link and each event
+   already carry Breezy's own correctly-scoped hover style; without this,
+   hovering either one *also* lights up the whole cell around it, since
+   :hover on a child always matches its ancestors too. The
+   [style*="inset-inline"] arm covers a multi-day event's own positioning
+   wrapper (every event has exactly one, single- or multi-day), which
+   renders a few px wider than the event element itself on every side -
+   without it, hovering that sliver of the wrapper (not the event, not
+   caught by [data-search-event-id]:hover) still flashed the highlight on
+   whichever single cell the wrapper happens to be a DOM descendant of. */
 @media (hover: hover) {
-  [data-date]:hover {
+  [data-date]:hover:not(:has([role="link"]:hover, [data-search-event-id]:hover, [style*="inset-inline"]:hover)) {
     background: var(--fc-breezy-muted);
     cursor: pointer;
+  }
+
+  /* Suppresses the hint above only while the event popover is open - it
+     anchors right next to a specific clicked event, so hovering other
+     cells while mid-interaction with it is confusing. Menus/search/the
+     date picker don't have the same issue (they sit off in a corner,
+     not anchored to a specific cell), so cells stay hoverable normally
+     while those are open. The #event-popover id inside :has() gives this
+     enough specificity to win over the rule above without !important. */
+  body:has(#event-popover.open) [data-date]:hover {
+    background: initial;
+    cursor: auto;
   }
 }
 
@@ -59,6 +83,12 @@ html, body {
   padding: 0;
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* iOS Safari ignores the viewport meta tag's user-scalable/maximum-scale
+     (has since iOS 10) - a pinch or fast double-tap still zooms the page
+     there regardless of what index.html's <meta viewport> says. pan-x
+     pan-y keeps normal scrolling but drops both zoom gestures; the meta
+     tag stays too, for browsers that do honor it. */
+  touch-action: pan-x pan-y;
 }
 
 body {
@@ -158,6 +188,11 @@ body {
   color: var(--fc-breezy-secondary-icon);
   cursor: pointer;
   opacity: 0;
+  /* An overlay (e.g. the event-form modal's backdrop) can sit on top of
+     this button while open; closing it reveals whatever's still under
+     the pointer, which would otherwise snap straight to :hover with no
+     transition and read as a flash. */
+  transition: background-color .15s ease, color .15s ease;
 }
 
 .calendar-list-item:hover .calendar-menu-button,
@@ -208,6 +243,7 @@ body {
   cursor: pointer;
   font: inherit;
   font-size: .9em;
+  transition: background-color .15s ease;
 }
 
 .calendar-menu button:hover {
@@ -304,13 +340,14 @@ body {
   background: var(--fc-breezy-muted);
 }
 
-/* Matches Breezy's own toolbar buttons (radius, padding, hover) rather
-   than a standalone pill. [role="heading"] is FullCalendar's own
-   element inside #calendar. */
+/* [role="heading"] is FullCalendar's own title element - Breezy hashes
+   its class names, so this is the only stable hook for it. */
 #calendar [role="heading"] {
   white-space: nowrap;
 }
 
+/* Matches Breezy's own toolbar buttons (radius, padding, hover) rather
+   than reading as a standalone pill. */
 #calendar .goto-date-trigger {
   display: inline-block;
   cursor: pointer;
@@ -336,6 +373,7 @@ body {
   border-radius: 6px;
   background: transparent;
   color: var(--fc-breezy-foreground);
+  transition: background-color .15s ease;
   font: inherit;
   font-size: .9em;
   cursor: pointer;
@@ -488,6 +526,7 @@ body {
   border-radius: 0 20px 20px 0;
   background: var(--fc-breezy-faint);
   color: var(--fc-breezy-secondary-icon);
+  transition: background-color .15s ease;
   cursor: pointer;
   padding: 0;
 }
@@ -527,6 +566,7 @@ body {
   border: none;
   background: transparent;
   border-radius: 6px;
+  transition: background-color .15s ease;
   cursor: pointer;
   font: inherit;
   text-align: left;
@@ -588,12 +628,6 @@ body {
   max-width: 100%;
   padding: 8px;
   box-sizing: border-box;
-}
-
-@media (max-width: 450px) {
-  .fc-toolbar {
-    flex-direction: column;
-  }
 }
 
 .fc-event-cancelled {
@@ -743,10 +777,7 @@ body {
   color: var(--fc-breezy-primary-foreground);
 }
 
-.event-modal #event-repeat-monthly-mode {
-  margin-top: 8px;
-}
-
+.event-modal #event-repeat-monthly-mode,
 .event-modal #event-repeat-until {
   margin-top: 8px;
 }
@@ -1055,6 +1086,7 @@ body {
   color: var(--fc-breezy-secondary-icon);
   cursor: pointer;
   flex: 0 0 auto;
+  transition: background-color .15s ease, color .15s ease;
 }
 
 .popover-icon-btn:hover {

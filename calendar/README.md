@@ -51,7 +51,9 @@ items).
   `MOBILE_BREAKPOINT`. The year field has explicit +/− buttons and
   auto-navigates ~600ms after a 4-digit year is typed. Empty day
   cells/columns highlight on hover (`[data-date]:hover`) as a hint
-  they're clickable.
+  they're clickable. Pinch/double-tap zoom is off (`touch-action` in
+  calendar.css - iOS Safari has ignored the viewport meta tag's
+  `user-scalable` since iOS 10, so the meta tag alone isn't enough).
 
 ## For maintainers
 
@@ -70,6 +72,16 @@ items).
 - Search is client-side, behind `getSearchableEvents()`.
 - No drag-and-drop (FullCalendar/Android WebView compatibility risk) -
   editing goes through the edit popup, creating is `dateClick`.
+- `openModal()` runs while the tap that triggered it is still resolving
+  (`dateClick`/`eventClick` fire on `touchend`), so that gesture's own
+  trailing mouse events hit whatever the modal has just put under that
+  point - on a phone, usually one of its `<select>`s, which then opens
+  on its own. Guarded by matching those trailing events on point+time
+  (`armModalTapGuard()`/`isModalTapTail()`) plus a `focusin` backstop.
+  It deliberately never touches `pointer-events` and never calls
+  `preventDefault()` on the triggering gesture itself - three earlier
+  attempts that did each broke single-tap-opens-the-modal on real
+  devices. Treat as load-bearing.
 - `.ics` stays plain RFC 5545.
 - Timezone-aware export/import (calendar.js, "Timezone conversion" and
   ".ics" sections) - derived entirely from the browser's own `Intl` tz
