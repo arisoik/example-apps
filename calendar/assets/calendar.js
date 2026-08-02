@@ -2636,6 +2636,15 @@ let calendar = new FullCalendar.Calendar(calendarEl, {
             watchDayGridEventLayout(info.el);
         }
     },
+    // Marks just the Month/Year day-number link (calendar.css font-size
+    // rule) - dayCellDidMount only fires for day-grid cells, unlike
+    // [role="link"] alone, which also matches Week's column headers,
+    // Day's week-number link, and Year/Agenda's own heading links, none
+    // of which should be affected.
+    dayCellDidMount: function (info) {
+        let link = info.el.querySelector('[role="link"]');
+        if (link) link.dataset.dayNumber = '1';
+    },
     // dateClick, not selectable/select - plain click/tap only, no drag.
     // New events get a default duration (1 hour timed, 1 day all-day).
     dateClick: function (info) {
